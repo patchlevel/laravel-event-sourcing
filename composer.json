@@ -1,0 +1,56 @@
+{
+    "name": "patchlevel/laravel-event-sourcing",
+    "license": "MIT",
+    "description": "laravel package for patchlevel/event-sourcing",
+    "keywords": [
+        "event-sourcing"
+    ],
+    "homepage": "https://github.com/patchlevel/laravel-event-sourcing",
+    "authors": [
+        {
+            "name": "Daniel Badura",
+            "email": "daniel.badura@patchlevel.de"
+        },
+        {
+            "name": "David Badura",
+            "email": "david.badura@patchlevel.de"
+        }
+    ],
+    "require": {
+        "php": "~8.1.0 || ~8.2.0 || ~8.3.0",
+        "patchlevel/event-sourcing": "3.5.x-dev",
+        "illuminate/contracts": "^9.28|^10.0|^11.0"
+    },
+    "require-dev": {
+        "ext-pdo_sqlite": "*"
+    },
+    "config": {
+        "preferred-install": {
+            "*": "dist"
+        },
+        "sort-packages": true,
+        "allow-plugins": {
+            "composer/package-versions-deprecated": true,
+            "dealerdirect/phpcodesniffer-composer-installer": true,
+            "infection/extension-installer": true
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Patchlevel\\LaravelEventSourcing\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Patchlevel\\LaravelEventSourcing\\Tests\\": "tests/"
+        }
+    },
+    "prefer-stable": true,
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Patchlevel\\LaravelEventSourcing\\EventSourcingServiceProvider"
+            ]
+        }
+    }
+}
