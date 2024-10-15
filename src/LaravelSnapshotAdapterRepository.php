@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Patchlevel\LaravelEventSourcing;
 
 use Illuminate\Support\Facades\Cache;
@@ -11,9 +13,7 @@ use Patchlevel\EventSourcing\Snapshot\AdapterRepository;
 
 class LaravelSnapshotAdapterRepository implements AdapterRepository
 {
-    /**
-     * @var array<string, SnapshotAdapter>
-     */
+    /** @var array<string, SnapshotAdapter> */
     private array $adapterCache = [];
 
     public function get(string $name): SnapshotAdapter
@@ -24,7 +24,7 @@ class LaravelSnapshotAdapterRepository implements AdapterRepository
 
         try {
             $this->adapterCache[$name] = new Psr16SnapshotAdapter(
-                Cache::store($name === 'default' ? null : $name)
+                Cache::store($name === 'default' ? null : $name),
             );
 
             return $this->adapterCache[$name];

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Patchlevel\LaravelEventSourcing;
 
 use Patchlevel\EventSourcing\Aggregate\AggregateRootId;
@@ -24,9 +26,7 @@ abstract class AggregateRoot extends BasicAggregateRoot
         self::repository()->save($this);
     }
 
-    /**
-     * @return Repository<static>
-     */
+    /** @return Repository<static> */
     public static function repository(): Repository
     {
         return app(RepositoryManager::class)->get(static::class);
