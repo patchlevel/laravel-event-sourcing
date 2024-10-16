@@ -29,6 +29,7 @@ use Patchlevel\EventSourcing\Console\Command\SubscriptionStatusCommand;
 use Patchlevel\EventSourcing\Console\Command\SubscriptionTeardownCommand;
 use Patchlevel\EventSourcing\Console\Command\WatchCommand;
 use Patchlevel\EventSourcing\Console\DoctrineHelper;
+use Patchlevel\EventSourcing\Cryptography\DoctrineCipherKeyStore;
 use Patchlevel\EventSourcing\EventBus\AttributeListenerProvider;
 use Patchlevel\EventSourcing\EventBus\Consumer;
 use Patchlevel\EventSourcing\EventBus\DefaultConsumer;
@@ -83,9 +84,18 @@ use Patchlevel\EventSourcing\Subscription\Store\SubscriptionStore;
 use Patchlevel\EventSourcing\Subscription\Subscriber\MetadataSubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscriber\SubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscriber\SubscriberHelper;
+use Patchlevel\Hydrator\Cryptography\Cipher\Cipher;
+use Patchlevel\Hydrator\Cryptography\Cipher\CipherKeyFactory;
+use Patchlevel\Hydrator\Cryptography\Cipher\OpensslCipher;
+use Patchlevel\Hydrator\Cryptography\Cipher\OpensslCipherKeyFactory;
+use Patchlevel\Hydrator\Cryptography\PayloadCryptographer;
+use Patchlevel\Hydrator\Cryptography\PersonalDataPayloadCryptographer;
+use Patchlevel\Hydrator\Cryptography\Store\CipherKeyStore;
 use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\Hydrator\Metadata\AttributeMetadataFactory;
 use Patchlevel\Hydrator\MetadataHydrator;
+use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
+use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
 
 use function array_key_exists;
 use function sprintf;
@@ -105,7 +115,11 @@ class EventSourcingServiceProvider extends ServiceProvider
     {
         $this->publishes([
             __DIR__ . '/../config/event-sourcing.php' => config_path('event-sourcing.php'),
-        ]);
+        ], 'patchlevel-config');
+
+        $this->publishesMigrations([
+            __DIR__.'/../database/migrations/' => database_path('migrations')
+        ], 'patchlevel-migrations');
 
         if (!$this->app->runningInConsole()) {
             return;
@@ -149,6 +163,7 @@ class EventSourcingServiceProvider extends ServiceProvider
         $this->registerEventBus();
         $this->registerSnapshots();
         $this->registerSubscription();
+        $this->registerCryptography();
     }
 
     private function registerConnection(): void
@@ -270,7 +285,7 @@ class EventSourcingServiceProvider extends ServiceProvider
         $this->app->singleton(Hydrator::class, static function () {
             return new MetadataHydrator(
                 new AttributeMetadataFactory(),
-                null, //app(PayloadCryptographer::class),
+                config('event-sourcing.cryptography.enabled') ? app(PayloadCryptographer::class) : null,
             );
         });
     }
@@ -309,7 +324,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 app(MessageDecorator::class),
                 app('event_sourcing.clock'),
                 app(AggregateRootMetadataFactory::class),
-                null, // app('logger', null),
+                app('log'),
             );
         });
     }
@@ -446,14 +461,14 @@ class EventSourcingServiceProvider extends ServiceProvider
         $this->app->singleton(Consumer::class, static function () {
             return new DefaultConsumer(
                 app(ListenerProvider::class),
-                null, // app('logger', null),
+                app('log'),
             );
         });
 
         $this->app->singleton(EventBus::class, static function () {
             return new DefaultEventBus(
                 app(Consumer::class),
-                null, // app('logger', null),
+                app('log'),
             );
         });
     }
@@ -516,7 +531,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 app(SubscriptionStore::class),
                 app(SubscriberAccessorRepository::class),
                 app(RetryStrategy::class),
-                null, // app('logger', null),
+                app('log'),
             );
         });
 
@@ -544,38 +559,21 @@ class EventSourcingServiceProvider extends ServiceProvider
             });
         }
 
-        if (config('event-sourcing.subscription.auto_setup.enabled')) {
-            /*
-                      $container->register(AutoSetupListener::class)
-                ->setArguments([
-                    new Reference(SubscriptionEngine::class),
-                    $config['subscription']['auto_setup']['ids'] ?: null,
-                    $config['subscription']['auto_setup']['groups'] ?: null,
-                ])
-                ->addTag('kernel.event_listener', [
-                    'event' => 'kernel.request',
-                    'priority' => 200,
-                    'method' => 'onKernelRequest',
-                ]);
-             */
-        }
+        $this->app->singleton(AutoSetupMiddleware::class, static function () {
+            return new AutoSetupMiddleware(
+                app(SubscriptionEngine::class),
+                config('event-sourcing.subscription.auto_setup.ids'),
+                config('event-sourcing.subscription.auto_setup.groups'),
+            );
+        });
 
-        if (config('event-sourcing.subscription.rebuild_after_file_change')) {
-            /*
-                     $container->register(SubscriptionRebuildAfterFileChangeListener::class)
-            ->setArguments([
-                new Reference(SubscriptionEngine::class),
-                new TaggedIteratorArgument('event_sourcing.subscriber'),
-                new Reference('cache.app'),
-                new Reference(SubscriberMetadataFactory::class),
-            ])
-            ->addTag('kernel.event_listener', [
-                'event' => 'kernel.request',
-                'priority' => 100,
-                'method' => 'onKernelRequest',
-            ]);
-             */
-        }
+        $this->app->singleton(SubscriptionRebuildAfterFileChangeMiddleware::class, function () {
+            return new SubscriptionRebuildAfterFileChangeMiddleware(
+                app(SubscriptionEngine::class),
+                $this->app->tagged('event_sourcing.subscriber'),
+                app(SubscriberMetadataFactory::class),
+            );
+        });
 
         $this->app->singleton(SubscriptionSetupCommand::class, static function () {
             return new SubscriptionSetupCommand(
@@ -623,6 +621,35 @@ class EventSourcingServiceProvider extends ServiceProvider
         $this->app->singleton(SubscriptionReactivateCommand::class, static function () {
             return new SubscriptionReactivateCommand(
                 app(SubscriptionEngine::class),
+            );
+        });
+    }
+
+    private function registerCryptography(): void
+    {
+        if (!config('event-sourcing.cryptography.enabled')) {
+            return;
+        }
+
+        $this->app->singleton(CipherKeyFactory::class, static function () {
+            return new OpensslCipherKeyFactory(config('event-sourcing.cryptography.algorithm'));
+        });
+
+        $this->app->singleton(CipherKeyStore::class, static function () {
+            return new DoctrineCipherKeyStore(
+                app('event_sourcing.dbal_connection'),
+            );
+        });
+
+        $this->app->singleton(Cipher::class, static function () {
+            return new OpensslCipher();
+        });
+
+        $this->app->singleton(PayloadCryptographer::class, static function () {
+            return new PersonalDataPayloadCryptographer(
+                app(CipherKeyStore::class),
+                app(CipherKeyFactory::class),
+                app(Cipher::class),
             );
         });
     }

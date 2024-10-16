@@ -1,12 +1,12 @@
-[![Type Coverage](https://shepherd.dev/github/patchlevel/event-sourcing-bundle/coverage.svg)](https://shepherd.dev/github/patchlevel/event-sourcing-bundle)
-[![Latest Stable Version](https://poser.pugx.org/patchlevel/event-sourcing-bundle/v)](//packagist.org/packages/patchlevel/event-sourcing-bundle)
-[![License](https://poser.pugx.org/patchlevel/event-sourcing-bundle/license)](//packagist.org/packages/patchlevel/event-sourcing-bundle)
+[![Type Coverage](https://shepherd.dev/github/patchlevel/laravel-event-sourcing/coverage.svg)](https://shepherd.dev/github/patchlevel/laravel-event-sourcing)
+[![Latest Stable Version](https://poser.pugx.org/patchlevel/laravel-event-sourcing/v)](//packagist.org/packages/patchlevel/laravel-event-sourcing)
+[![License](https://poser.pugx.org/patchlevel/laravel-event-sourcing/license)](//packagist.org/packages/patchlevel/laravel-event-sourcing)
 
-# Event-Sourcing-Bundle
+# Laravel-Event-Sourcing
 
-An event sourcing bundle, complete with all the essential features,
+An event sourcing laravel package, complete with all the essential features,
 powered by the reliable Doctrine ecosystem and focused on developer experience.
-This bundle is a [symfony](https://symfony.com/) integration 
+This package is a [laravel](https://laravel.com/) integration 
 for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 
 ## Features
@@ -14,29 +14,25 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 * Everything is included in the package for event sourcing
 * Based on [doctrine dbal](https://github.com/doctrine/dbal) and their ecosystem
 * Developer experience oriented and fully typed
-* Automatic [snapshot](https://patchlevel.github.io/event-sourcing-docs/latest/snapshots/)-system to boost your performance
-* [Split](https://patchlevel.github.io/event-sourcing-docs/latest/split_stream/) big aggregates into multiple streams
-* Versioned and managed lifecycle of [subscriptions](https://patchlevel.github.io/event-sourcing-docs/latest/subscription/) like projections and processors
-* Safe usage of [Personal Data](https://patchlevel.github.io/event-sourcing-docs/latest/personal_data/) with crypto-shredding
-* Smooth [upcasting](https://patchlevel.github.io/event-sourcing-docs/latest/upcasting/) of old events
-* Simple setup with [scheme management](https://patchlevel.github.io/event-sourcing-docs/latest/store/) and [doctrine migration](https://patchlevel.github.io/event-sourcing-docs/latest/store/)
-* Built in [cli commands](https://patchlevel.github.io/event-sourcing-docs/latest/cli/) with [symfony](https://symfony.com/)
+* Automatic [snapshot](https://event-sourcing.patchlevel.io/latest/snapshots/)-system to boost your performance
+* [Split](https://event-sourcing.patchlevel.io/latest/split_stream/) big aggregates into multiple streams
+* Versioned and managed lifecycle of [subscriptions](https://event-sourcing.patchlevel.io/latest/subscription/) like projections and processors
+* Safe usage of [Personal Data](https://event-sourcing.patchlevel.io/latest/personal_data/) with crypto-shredding
+* Smooth [upcasting](https://event-sourcing.patchlevel.io/latest/upcasting/) of old events
+* Simple setup with [scheme management](https://event-sourcing.patchlevel.io/latest/store/) and [doctrine migration](https://event-sourcing.patchlevel.io/latest/store/)
+* Built in [cli commands](https://event-sourcing.patchlevel.io/latest/cli/) with [symfony](https://symfony.com/)
 * and much more...
 
 ## Installation
 
 ```bash
-composer require patchlevel/event-sourcing-bundle
+composer require patchlevel/laravel-event-sourcing
 ```
-
-> [!WARNING]
-> If you don't use the symfony flex recipe for this bundle, you need to follow
-this [installation documentation](https://patchlevel.github.io/event-sourcing-bundle-docs/latest/installation/).
 
 ## Documentation
 
-* [Bundle Documentation](https://patchlevel.github.io/event-sourcing-bundle-docs/latest/)
-* [Library Documentation](https://patchlevel.github.io/event-sourcing-docs/latest)
+* [Bundle Documentation](https://event-sourcing-bundle.patchlevel.io/latest/)
+* [Library Documentation](https://event-sourcing.patchlevel.io/latest/)
 * [Related Blog](https://patchlevel.de/blog)
 
 ## Integration

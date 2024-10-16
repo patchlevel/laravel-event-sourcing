@@ -13,7 +13,6 @@ return [
         'service' => null,
         'options' => []
     ],
-    '' => '',
     'events' => [app_path()],
     'aggregates' => [app_path()],
     'headers' => [app_path()],
@@ -26,25 +25,28 @@ return [
             'max_attempts' => 5,
         ],
         'run_after_aggregate_save' => [
-            'enabled' => true,
             'ids' => null,
             'groups' => null,
             'limit' => null
         ],
     ],
+    'cryptography' => [
+        'enabled' => true,
+        'algorithm' => 'aes256'
+    ],
     'upcaster' => [
         // App\Upcaster\YourUpcaster::class
     ],
     'message_decorator' => [
-        // App\MessageDecorator\YourUpcaster::class
+        // App\MessageDecorator\YourMessageDecorator::class
     ],
     'listeners' => [
         // App\Listener\YourListener::class
     ],
     'subscribers' => [
-        // App\Subscribers\YourListener::class
+        // App\Subscribers\YourSubscriber::class
     ],
     'argument_resolvers' => [
-        // App\ArgumentResolvers\YourListener::class
+        // App\ArgumentResolvers\YourResolver::class
     ],
 ];
