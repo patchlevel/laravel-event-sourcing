@@ -47,7 +47,6 @@ final class SubscriptionRebuildAfterFileChangeMiddleware
                 continue;
             }
 
-
             $currentModified = $this->getLastModifiedTime($subscriber);
 
             if ($lastModified === $currentModified) {

@@ -103,6 +103,8 @@ use function str_starts_with;
 
 class EventSourcingServiceProvider extends ServiceProvider
 {
+    public static $publishGroups = ['patchlevel-config', 'patchlevel-migrations'];
+
     public array $singletons = [
         EventMetadataFactory::class => AttributeEventMetadataFactory::class,
         Encoder::class => JsonEncoder::class,
@@ -118,7 +120,7 @@ class EventSourcingServiceProvider extends ServiceProvider
         ], 'patchlevel-config');
 
         $this->publishesMigrations([
-            __DIR__.'/../database/migrations/' => database_path('migrations')
+            __DIR__ . '/../database/migrations/' => database_path('migrations'),
         ], 'patchlevel-migrations');
 
         if (!$this->app->runningInConsole()) {
@@ -638,8 +640,11 @@ class EventSourcingServiceProvider extends ServiceProvider
         $this->app->singleton(CipherKeyStore::class, static function () {
             return new DoctrineCipherKeyStore(
                 app('event_sourcing.dbal_connection'),
+                'eventstore_cipher_keys',
             );
         });
+
+        $this->app->tag(CipherKeyStore::class, ['event_sourcing.doctrine_schema_configurator']);
 
         $this->app->singleton(Cipher::class, static function () {
             return new OpensslCipher();

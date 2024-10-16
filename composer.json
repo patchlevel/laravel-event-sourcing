@@ -3,7 +3,8 @@
     "license": "MIT",
     "description": "laravel package for patchlevel/event-sourcing",
     "keywords": [
-        "event-sourcing"
+        "event-sourcing",
+        "laravel"
     ],
     "homepage": "https://github.com/patchlevel/laravel-event-sourcing",
     "authors": [
