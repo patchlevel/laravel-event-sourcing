@@ -10,16 +10,17 @@ return new class extends Migration
     {
         Schema::create('eventstore', function (Blueprint $table) {
             $table->bigIncrements('id');
-            $table->string('stream', 255);
-            $table->integer('playhead')->nullable();
+            $table->string('aggregate', 255);
+            $table->char('aggregate_id', 36);
+            $table->integer('playhead');
             $table->string('event', 255);
             $table->json('payload');
             $table->dateTime('recorded_on');
-            $table->boolean('new_stream_start')->default(false);
-            $table->boolean('archived')->default(false);
+            $table->tinyInteger('new_stream_start')->default(0);
+            $table->tinyInteger('archived')->default(0);
             $table->json('custom_headers');
-            $table->unique(['stream', 'playhead']);
-            $table->index(['stream', 'playhead', 'archived']);
+            $table->unique(['aggregate', 'aggregate_id', 'playhead']);
+            $table->index(['aggregate', 'aggregate_id', 'playhead', 'archived']);
         });
 
         Schema::create('subscriptions', function (Blueprint $table) {

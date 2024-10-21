@@ -26,7 +26,9 @@ abstract class AggregateRoot extends BasicAggregateRoot
         self::repository()->save($this);
     }
 
-    /** @return Repository<static> */
+    /**
+     * @return Repository<static>
+     */
     public static function repository(): Repository
     {
         return app(RepositoryManager::class)->get(static::class);

@@ -11,7 +11,6 @@ return [
     | that is configured in the laravel database configuration.
     |
     */
-
     'connection' => [
         'url' => env('EVENT_SOURCING_DB_URL'),
         'connection' => env(
@@ -27,16 +26,14 @@ return [
     |
     | Here you can configure the event store.
     | You can choose between different types of stores.
-    |
-    | dbal_stream (default): Store events in a single table with a stream id.
-    | dbal_aggregate: Store events in a single table with the aggregate and aggregate id.
+    | dbal_aggregate (default): Store events in a single table with the aggregate and aggregate id.
+    | dbal_stream (experimental): Store events in a single table with a stream id.
     | in_memory: Store events in memory.
     | custom: Use a custom store, you need to provide a service.
     |
     */
-
     'store' => [
-        'type' => 'dbal_stream',
+        'type' => 'dbal_aggregate',
         'service' => null,
         'options' => [
             'table_name' => 'eventstore',
@@ -52,7 +49,6 @@ return [
     | events, aggregates and headers.
     |
     */
-
     'events' => [app_path()],
     'aggregates' => [app_path()],
     'headers' => [app_path()],
@@ -71,7 +67,6 @@ return [
     | and 'subscription.throw_on_error' to false.
     |
     */
-
     'subscription' => [
         'throw_on_error' => true,
         'catch_up' => true,
@@ -97,7 +92,6 @@ return [
     | You can also define the algorithm for the cryptography.
     |
     */
-
     'cryptography' => [
         'enabled' => true,
         'algorithm' => 'aes256'
@@ -117,7 +111,6 @@ return [
     | Argument Resolver: Argument Resolvers are used to resolve arguments for subscribers.
     |
     */
-
     'upcaster' => [
         // App\Upcaster\YourUpcaster::class
     ],

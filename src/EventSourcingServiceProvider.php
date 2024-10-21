@@ -103,8 +103,7 @@ use function str_starts_with;
 
 class EventSourcingServiceProvider extends ServiceProvider
 {
-    public static $publishGroups = ['patchlevel-config', 'patchlevel-migrations'];
-
+    /** @var array<class-string, class-string> */
     public array $singletons = [
         EventMetadataFactory::class => AttributeEventMetadataFactory::class,
         Encoder::class => JsonEncoder::class,
@@ -171,13 +170,20 @@ class EventSourcingServiceProvider extends ServiceProvider
     private function registerConnection(): void
     {
         $this->app->singleton('event_sourcing.dbal_connection', static function () {
-            if (config('event-sourcing.connection.url')) {
+            $url = config('event-sourcing.connection.url');
+
+            if (is_string($url)) {
                 return DriverManager::getConnection(
-                    (new DsnParser())->parse(config('event-sourcing.connection.url')),
+                    (new DsnParser())->parse($url),
                 );
             }
 
+            /**
+             * @var array<string, array{url: string|null, driver: string, database: string, username: string, password: string, host: string, port: int}> $connections
+             */
             $connections = config('database.connections');
+
+            /** @var string $connectionKey */
             $connectionKey = config('event-sourcing.connection.connection');
 
             if (!array_key_exists($connectionKey, $connections)) {
@@ -192,6 +198,9 @@ class EventSourcingServiceProvider extends ServiceProvider
                 );
             }
 
+            /**
+             * @var 'pdo_mysql'|'pdo_pgsql'|'pdo_sqlite' $driver
+             */
             $driver = match ($connectionParams['driver']) {
                 'mysql', 'mariadb' => 'pdo_mysql',
                 'pgsql' => 'pdo_pgsql',
@@ -215,22 +224,35 @@ class EventSourcingServiceProvider extends ServiceProvider
     private function registerStore(): void
     {
         $this->app->singleton(Store::class, static function () {
+            /**
+             * @var string $type
+             */
             $type = config('event-sourcing.store.type');
 
             if ($type === 'custom') {
-                return app(config('event-sourcing.store.service'));
+                /**
+                 * @var string $service
+                 */
+                $service = config('event-sourcing.store.service');
+
+                return app($service);
             }
 
             if ($type === 'in_memory') {
                 return new InMemoryStore();
             }
 
+            /**
+             * @var array<string, mixed> $options
+             */
+            $options = config('event-sourcing.store.options');
+
             if ($type === 'dbal_aggregate') {
                 return new DoctrineDbalStore(
                     app('event_sourcing.dbal_connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
-                    config('event-sourcing.store.options'),
+                    $options,
                 );
             }
 
@@ -240,14 +262,19 @@ class EventSourcingServiceProvider extends ServiceProvider
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
                     app('event_sourcing.clock'),
-                    config('event-sourcing.store.options'),
+                    $options,
                 );
             }
 
             throw new InvalidArgumentException(sprintf('Unknown store type "%s"', $type));
         });
 
-        if (!str_starts_with(config('event-sourcing.store.type'), 'dbal_')) {
+        /**
+         * @var string $type
+         */
+        $type = config('event-sourcing.store.type');
+
+        if (!str_starts_with($type, 'dbal_')) {
             return;
         }
 
@@ -257,7 +284,12 @@ class EventSourcingServiceProvider extends ServiceProvider
     private function registerSerializer(): void
     {
         $this->app->singleton(EventRegistry::class, static function () {
-            return (new AttributeEventRegistryFactory())->create(config('event-sourcing.events'));
+            /**
+             * @var list<string> $paths
+             */
+            $paths = config('event-sourcing.events');
+
+            return (new AttributeEventRegistryFactory())->create($paths);
         });
 
         $this->app->singleton(EventSerializer::class, static function () {
@@ -416,6 +448,9 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerUpcaster(): void
     {
+        /**
+         * @var class-string $class
+         */
         foreach (config('event-sourcing.upcaster') as $class) {
             $this->app->tag($class, 'event_sourcing.upcaster');
         }
@@ -429,6 +464,9 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerMessageDecorator(): void
     {
+        /**
+         * @var class-string $class
+         */
         foreach (config('event-sourcing.message_decorator') as $class) {
             $this->app->tag($class, 'event_sourcing.message_decorator');
         }
@@ -450,6 +488,9 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerEventBus(): void
     {
+        /**
+         * @var class-string $class
+         */
         foreach (config('event-sourcing.listeners') as $class) {
             $this->app->tag($class, 'event_sourcing.listener');
         }
@@ -488,6 +529,9 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerSubscription(): void
     {
+        /**
+         * @var class-string $class
+         */
         foreach (config('event-sourcing.subscribers') as $class) {
             $this->app->tag($class, 'event_sourcing.subscriber');
         }
@@ -515,6 +559,9 @@ class EventSourcingServiceProvider extends ServiceProvider
 
         $this->app->tag(SubscriptionStore::class, ['event_sourcing.doctrine_schema_configurator']);
 
+        /**
+         * @var class-string $class
+         */
         foreach (config('event-sourcing.argument_resolvers') as $class) {
             $this->app->tag($class, 'event_sourcing.argument_resolver');
         }

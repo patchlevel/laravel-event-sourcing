@@ -26,6 +26,9 @@ final class SubscriptionRebuildAfterFileChangeMiddleware
     ) {
     }
 
+    /**
+     * @param Closure(Request): Response $next
+     */
     public function handle(Request $request, Closure $next): Response
     {
         $toRemove = [];
