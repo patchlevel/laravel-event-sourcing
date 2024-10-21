@@ -24,9 +24,7 @@ final class AutoSetupMiddleware
     ) {
     }
 
-    /**
-     * @param Closure(Request): Response $next
-     */
+    /** @param Closure(Request): Response $next */
     public function handle(Request $request, Closure $next): Response
     {
         $subscriptions = $this->subscriptionEngine->subscriptions(

@@ -9,6 +9,8 @@ use Patchlevel\EventSourcing\Aggregate\BasicAggregateRoot;
 use Patchlevel\EventSourcing\Repository\Repository;
 use Patchlevel\EventSourcing\Repository\RepositoryManager;
 
+use function app;
+
 abstract class AggregateRoot extends BasicAggregateRoot
 {
     public static function load(AggregateRootId $id): static
@@ -26,9 +28,7 @@ abstract class AggregateRoot extends BasicAggregateRoot
         self::repository()->save($this);
     }
 
-    /**
-     * @return Repository<static>
-     */
+    /** @return Repository<static> */
     public static function repository(): Repository
     {
         return app(RepositoryManager::class)->get(static::class);

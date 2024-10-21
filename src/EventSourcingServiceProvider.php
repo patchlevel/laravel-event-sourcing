@@ -97,7 +97,12 @@ use Patchlevel\Hydrator\MetadataHydrator;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
 
+use function app;
 use function array_key_exists;
+use function config;
+use function config_path;
+use function database_path;
+use function is_string;
 use function sprintf;
 use function str_starts_with;
 
@@ -178,9 +183,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 );
             }
 
-            /**
-             * @var array<string, array{url: string|null, driver: string, database: string, username: string, password: string, host: string, port: int}> $connections
-             */
+            /** @var array<string, array{url: string|null, driver: string, database: string, username: string, password: string, host: string, port: int}> $connections */
             $connections = config('database.connections');
 
             /** @var string $connectionKey */
@@ -198,9 +201,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 );
             }
 
-            /**
-             * @var 'pdo_mysql'|'pdo_pgsql'|'pdo_sqlite' $driver
-             */
+            /** @var 'pdo_mysql'|'pdo_pgsql'|'pdo_sqlite' $driver */
             $driver = match ($connectionParams['driver']) {
                 'mysql', 'mariadb' => 'pdo_mysql',
                 'pgsql' => 'pdo_pgsql',
@@ -224,15 +225,11 @@ class EventSourcingServiceProvider extends ServiceProvider
     private function registerStore(): void
     {
         $this->app->singleton(Store::class, static function () {
-            /**
-             * @var string $type
-             */
+            /** @var string $type */
             $type = config('event-sourcing.store.type');
 
             if ($type === 'custom') {
-                /**
-                 * @var string $service
-                 */
+                /** @var string $service */
                 $service = config('event-sourcing.store.service');
 
                 return app($service);
@@ -242,9 +239,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 return new InMemoryStore();
             }
 
-            /**
-             * @var array<string, mixed> $options
-             */
+            /** @var array<string, mixed> $options */
             $options = config('event-sourcing.store.options');
 
             if ($type === 'dbal_aggregate') {
@@ -269,9 +264,7 @@ class EventSourcingServiceProvider extends ServiceProvider
             throw new InvalidArgumentException(sprintf('Unknown store type "%s"', $type));
         });
 
-        /**
-         * @var string $type
-         */
+        /** @var string $type */
         $type = config('event-sourcing.store.type');
 
         if (!str_starts_with($type, 'dbal_')) {
@@ -284,9 +277,7 @@ class EventSourcingServiceProvider extends ServiceProvider
     private function registerSerializer(): void
     {
         $this->app->singleton(EventRegistry::class, static function () {
-            /**
-             * @var list<string> $paths
-             */
+            /** @var list<string> $paths */
             $paths = config('event-sourcing.events');
 
             return (new AttributeEventRegistryFactory())->create($paths);
@@ -448,9 +439,7 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerUpcaster(): void
     {
-        /**
-         * @var class-string $class
-         */
+        /** @var class-string $class */
         foreach (config('event-sourcing.upcaster') as $class) {
             $this->app->tag($class, 'event_sourcing.upcaster');
         }
@@ -464,9 +453,7 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerMessageDecorator(): void
     {
-        /**
-         * @var class-string $class
-         */
+        /** @var class-string $class */
         foreach (config('event-sourcing.message_decorator') as $class) {
             $this->app->tag($class, 'event_sourcing.message_decorator');
         }
@@ -488,9 +475,7 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerEventBus(): void
     {
-        /**
-         * @var class-string $class
-         */
+        /** @var class-string $class */
         foreach (config('event-sourcing.listeners') as $class) {
             $this->app->tag($class, 'event_sourcing.listener');
         }
@@ -529,9 +514,7 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerSubscription(): void
     {
-        /**
-         * @var class-string $class
-         */
+        /** @var class-string $class */
         foreach (config('event-sourcing.subscribers') as $class) {
             $this->app->tag($class, 'event_sourcing.subscriber');
         }
@@ -559,9 +542,7 @@ class EventSourcingServiceProvider extends ServiceProvider
 
         $this->app->tag(SubscriptionStore::class, ['event_sourcing.doctrine_schema_configurator']);
 
-        /**
-         * @var class-string $class
-         */
+        /** @var class-string $class */
         foreach (config('event-sourcing.argument_resolvers') as $class) {
             $this->app->tag($class, 'event_sourcing.argument_resolver');
         }

@@ -14,6 +14,7 @@ use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngineCriteria;
 use Patchlevel\EventSourcing\Subscription\RunMode;
 use ReflectionClass;
 
+use function cache;
 use function filemtime;
 
 final class SubscriptionRebuildAfterFileChangeMiddleware
@@ -26,9 +27,7 @@ final class SubscriptionRebuildAfterFileChangeMiddleware
     ) {
     }
 
-    /**
-     * @param Closure(Request): Response $next
-     */
+    /** @param Closure(Request): Response $next */
     public function handle(Request $request, Closure $next): Response
     {
         $toRemove = [];
