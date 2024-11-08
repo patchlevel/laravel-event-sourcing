@@ -3,8 +3,6 @@
 In our little getting started example, we manage hotels.
 We keep the example small, so we can only create hotels and let guests check in and check out.
 
-For this example we use [symfony/mailer](https://symfony.com/doc/current/mailer.html).
-
 !!! info
 
     First of all, the bundle has to be installed and configured.
@@ -84,18 +82,18 @@ namespace App\Hotel\Domain;
 use App\Hotel\Domain\Event\GuestIsCheckedIn;
 use App\Hotel\Domain\Event\GuestIsCheckedOut;
 use App\Hotel\Domain\Event\HotelCreated;
-use Patchlevel\EventSourcing\Aggregate\BasicAggregateRoot;
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Aggregate;
 use Patchlevel\EventSourcing\Attribute\Apply;
 use Patchlevel\EventSourcing\Attribute\Id;
+use Patchlevel\LaravelEventSourcing\AggregateRoot;
 
 use function array_filter;
 use function array_values;
 use function in_array;
 
 #[Aggregate(name: 'hotel')]
-final class Hotel extends BasicAggregateRoot
+final class Hotel extends AggregateRoot
 {
     #[Id]
     private Uuid $id;
@@ -326,65 +324,57 @@ namespace App\Hotel\Infrastructure\Controller;
 
 use App\Hotel\Domain\Hotel;
 use App\Hotel\Infrastructure\Projection\HotelProjection;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Patchlevel\EventSourcing\Aggregate\Uuid;
-use Patchlevel\EventSourcing\Repository\Repository;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpKernel\Attribute\AsController;
-use Symfony\Component\Routing\Annotation\Route;
 
-#[AsController]
+use function response;
+
 final class HotelController
 {
     public function __construct(
         private readonly HotelProjection $hotelProjection,
-        /** @var Repository<Hotel> */
-        private readonly Repository $hotelRepository,
     ) {
     }
 
-    #[Route('/', methods:['GET'])]
-    public function listAction(): JsonResponse
+    public function listAction(): Response
     {
-        return new JsonResponse(
+        return response()->json(
             $this->hotelProjection->getHotels(),
         );
     }
 
-    #[Route('/create', methods:['POST'])]
-    public function createAction(Request $request): JsonResponse
+    public function createAction(Request $request): Response
     {
         $hotelName = $request->request->get('name'); // need validation!
         $id = Uuid::v7();
 
         $hotel = Hotel::create($id, $hotelName);
-        $this->hotelRepository->save($hotel);
+        $hotel->save();
 
-        return new JsonResponse(['id' => $id->toString()]);
+        return response()->json(['id' => $id->toString()]);
     }
 
-    #[Route('/{hotelId}/check-in', methods:['POST'])]
-    public function checkInAction(Uuid $hotelId, Request $request): JsonResponse
+    public function checkInAction(Uuid $hotelId, Request $request): Response
     {
         $guestName = $request->request->get('name'); // need validation!
 
-        $hotel = $this->hotelRepository->load($hotelId);
+        $hotel = Hotel::load($hotelId);
         $hotel->checkIn($guestName);
-        $this->hotelRepository->save($hotel);
+        $hotel->save();
 
-        return new JsonResponse();
+        return response()->json();
     }
 
-    #[Route('/{hotelId}/check-out', methods:['POST'])]
-    public function checkOutAction(Uuid $hotelId, Request $request): JsonResponse
+    public function checkOutAction(Uuid $hotelId, Request $request): Response
     {
         $guestName = $request->request->get('name'); // need validation!
 
-        $hotel = $this->hotelRepository->load($hotelId);
+        $hotel = Hotel::load($hotelId);
         $hotel->checkOut($guestName);
-        $this->hotelRepository->save($hotel);
+        $hotel->save();
 
-        return new JsonResponse();
+        return response()->json();
     }
 }
 ```

@@ -61,7 +61,7 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H github.com > ~/.ssh/known_hosts
 
-      - run: git remote add doc git@github.com:patchlevel/event-sourcing-bundle-docs.git
+      - run: git remote add doc git@github.com:patchlevel/laravel-event-sourcing-docs.git
       - run: git fetch doc gh-pages --verbose
 
       - run: |
