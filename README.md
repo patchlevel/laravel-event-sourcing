@@ -12,15 +12,15 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 ## Features
 
 * Everything is included in the package for event sourcing
-* Based on [doctrine dbal](https://github.com/doctrine/dbal) and their ecosystem
+* Facades for easy access to event sourcing services and aggregates
 * Developer experience oriented and fully typed
-* Automatic [snapshot](https://event-sourcing.patchlevel.io/latest/snapshots/)-system to boost your performance
-* [Split](https://event-sourcing.patchlevel.io/latest/split_stream/) big aggregates into multiple streams
-* Versioned and managed lifecycle of [subscriptions](https://event-sourcing.patchlevel.io/latest/subscription/) like projections and processors
-* Safe usage of [Personal Data](https://event-sourcing.patchlevel.io/latest/personal_data/) with crypto-shredding
-* Smooth [upcasting](https://event-sourcing.patchlevel.io/latest/upcasting/) of old events
-* Simple setup with [scheme management](https://event-sourcing.patchlevel.io/latest/store/) and [doctrine migration](https://event-sourcing.patchlevel.io/latest/store/)
-* Built in [cli commands](https://event-sourcing.patchlevel.io/latest/cli/) with [symfony](https://symfony.com/)
+* Automatic [snapshot](https://laravel-event-sourcing.patchlevel.io/latest/snapshots/)-system to boost your performance
+* [Split](https://laravel-event-sourcing.patchlevel.io/latest/split_stream/) big aggregates into multiple streams
+* Versioned and managed lifecycle of [subscriptions](https://laravel-event-sourcing.patchlevel.io/latest/subscription/) like projections and processors
+* Safe usage of [Personal Data](https://laravel-event-sourcing.patchlevel.io/latest/personal_data/) with crypto-shredding
+* Smooth [upcasting](https://laravel-event-sourcing.patchlevel.io/latest/upcasting/) of old events
+* Simple setup with [scheme management](https://laravel-event-sourcing.patchlevel.io/latest/store/) and [doctrine migration](https://laravel-event-sourcing.patchlevel.io/latest/store/)
+* Built in [cli commands](https://laravel-event-sourcing.patchlevel.io/latest/cli/) with [symfony](https://symfony.com/)
 * and much more...
 
 ## Installation
@@ -31,8 +31,8 @@ composer require patchlevel/laravel-event-sourcing
 
 ## Documentation
 
-* [Bundle Documentation](https://event-sourcing-bundle.patchlevel.io/latest/)
-* [Library Documentation](https://event-sourcing.patchlevel.io/latest/)
+* [Package Documentation](https://laravel-event-sourcing.patchlevel.io/latest/)
+* [Library Documentation](https://laravel-event-sourcing.patchlevel.io/latest/)
 * [Related Blog](https://patchlevel.de/blog)
 
 ## Integration
