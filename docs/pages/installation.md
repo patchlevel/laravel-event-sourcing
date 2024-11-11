@@ -7,7 +7,7 @@ This guide will help you to install the package in your laravel project.
 The first thing to do is to install packet if it has not already been done.
 
 ```bash
-composer require patchlevel/laravel-event-sourcing=1.0.0-beta2
+composer require patchlevel/laravel-event-sourcing=1.0.0-beta3
 ```
 !!! note
 
