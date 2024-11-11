@@ -92,8 +92,7 @@ nav:
   - Introduction: index.md
   - Installation: installation.md
   - Getting Started: getting_started.md
-  - Configuration: configuration.md
-  - Usage: usage.md
+  - Facades: facades.md
   - Links:
     - Blog: https://patchlevel.de/blog
     - Library Documentation: https://event-sourcing.patchlevel.io/latest/

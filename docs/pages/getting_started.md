@@ -5,7 +5,7 @@ We keep the example small, so we can only create hotels and let guests check in 
 
 !!! info
 
-    First of all, the bundle has to be installed and configured.
+    First of all, the package has to be installed and configured.
     If you haven't already done so, see the [installation introduction](installation.md).
     
 ## Define some events
@@ -19,13 +19,11 @@ namespace App\Hotel\Domain\Event;
 
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Event;
-use Patchlevel\EventSourcing\Serializer\Normalizer\IdNormalizer;
 
 #[Event('hotel.created')]
 final class HotelCreated
 {
     public function __construct(
-        #[IdNormalizer]
         public readonly Uuid $id,
         public readonly string $hotelName,
     ) {
@@ -180,7 +178,9 @@ namespace App\Hotel\Infrastructure\Projection;
 use App\Hotel\Domain\Event\GuestIsCheckedIn;
 use App\Hotel\Domain\Event\GuestIsCheckedOut;
 use App\Hotel\Domain\Event\HotelCreated;
-use Doctrine\DBAL\Connection;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Patchlevel\EventSourcing\Attribute\Projector;
 use Patchlevel\EventSourcing\Attribute\Setup;
 use Patchlevel\EventSourcing\Attribute\Subscribe;
@@ -192,25 +192,21 @@ final class HotelProjection
 {
     use SubscriberUtil;
 
-    public function __construct(private Connection $db)
-    {
-    }
-
     /** @return list<array{id: string, name: string, guests: int}> */
     public function getHotels(): array
     {
-        return $this->db->fetchAllAssociative("SELECT id, name, guests FROM {$this->table()};");
+        DB::select('select id, name, guests from ' . $this->table());
     }
 
     #[Subscribe(HotelCreated::class)]
     public function handleHotelCreated(HotelCreated $event): void
     {
-        $this->db->insert(
-            $this->table(),
+        DB::insert(
+            "insert into {$this->table()} (id, name, guests) values (?, ?, ?)",
             [
-                'id' => $event->id->toString(),
-                'name' => $event->hotelName,
-                'guests' => 0,
+                $event->id->toString(),
+                $event->name,
+                0,
             ],
         );
     }
@@ -218,8 +214,8 @@ final class HotelProjection
     #[Subscribe(GuestIsCheckedIn::class)]
     public function handleGuestIsCheckedIn(Uuid $hotelId): void
     {
-        $this->db->executeStatement(
-            "UPDATE {$this->table()} SET guests = guests + 1 WHERE id = ?;",
+        DB::update(
+            "update {$this->table()} set guests = guests + 1 where id = ?",
             [$hotelId->toString()],
         );
     }
@@ -227,8 +223,8 @@ final class HotelProjection
     #[Subscribe(GuestIsCheckedOut::class)]
     public function handleGuestIsCheckedOut(Uuid $hotelId): void
     {
-        $this->db->executeStatement(
-            "UPDATE {$this->table()} SET guests = guests - 1 WHERE id = ?;",
+        DB::update(
+            "update {$this->table()} set guests = guests - 1 where id = ?",
             [$hotelId->toString()],
         );
     }
@@ -236,13 +232,17 @@ final class HotelProjection
     #[Setup]
     public function create(): void
     {
-        $this->db->executeStatement("CREATE TABLE IF NOT EXISTS {$this->table()} (id VARCHAR PRIMARY KEY, name VARCHAR, guests INTEGER);");
+        Schema::create($this->table(), static function (Blueprint $table): void {
+            $table->uuid('id')->primary();
+            $table->string('name');
+            $table->integer('guests');
+        });
     }
 
     #[Teardown]
     public function drop(): void
     {
-        $this->db->executeStatement("DROP TABLE IF EXISTS {$this->table()};");
+        Schema::dropIfExists('hotels');
     }
 
     private function table(): string
@@ -267,30 +267,16 @@ In our example we also want to send an email to the head office as soon as a gue
 namespace App\Hotel\Application\Processor;
 
 use App\Hotel\Domain\Event\GuestIsCheckedIn;
+use Illuminate\Support\Facades\Mail;
 use Patchlevel\EventSourcing\Attribute\Processor;
-use Symfony\Component\Mailer\MailerInterface;
-use Symfony\Component\Mime\Email;
-
-use function sprintf;
 
 #[Processor('admin_emails')]
 final class SendCheckInEmailListener
 {
-    private function __construct(
-        private readonly MailerInterface $mailer,
-    ) {
-    }
-
     #[Subscribe(GuestIsCheckedIn::class)]
     public function onGuestIsCheckedIn(GuestIsCheckedIn $event): void
     {
-        $email = (new Email())
-            ->from('noreply@patchlevel.de')
-            ->to('hq@patchlevel.de')
-            ->subject('Guest is checked in')
-            ->text(sprintf('A new guest named "%s" is checked in', $event->guestName));
-
-        $this->mailer->send($email);
+        Mail::to('hq@patchlevel.de')->send(new GuestCheckedIn($event->guestName));
     }
 }
 ```
@@ -302,20 +288,7 @@ final class SendCheckInEmailListener
 
     You can find out more about processor in the [library](https://event-sourcing.patchlevel.io/latest/subscription/)
     
-## Database setup
-
-So that we can actually write the data to a database, we need the associated schema and databases.
-
-```bash
-bin/console event-sourcing:database:create
-bin/console event-sourcing:schema:create
-bin/console event-sourcing:subscription:setup
-```
-!!! note
-
-    You can find out more about the cli in the [library](https://event-sourcing.patchlevel.io/latest/cli/).
-    
-### Usage
+## Usage
 
 We are now ready to use the Event Sourcing System. We can load, change and save aggregates.
 
@@ -389,6 +362,6 @@ final class HotelController
     
 !!! note
 
-    This documentation is limited to the bundle integration.
+    This documentation is limited to the package integration.
     You should also read the [library documentation](https://event-sourcing.patchlevel.io/latest/).
     

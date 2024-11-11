@@ -8,7 +8,7 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 ## Features
 
 * Everything is included in the package for event sourcing
-* Based on [doctrine dbal](https://github.com/doctrine/dbal) and their ecosystem
+* Facades for easy access to event sourcing services and aggregates
 * Developer experience oriented and fully typed
 * Automatic [snapshot](https://event-sourcing.patchlevel.io/latest/snapshots/)-system to boost your performance
 * [Split](https://event-sourcing.patchlevel.io/latest/split_stream/) big aggregates into multiple streams
@@ -32,7 +32,3 @@ composer require patchlevel/laravel-event-sourcing
 
     Start with the [quickstart](./getting_started.md) to get a feeling for the package.
     
-## Integration
-
-* [Psalm](https://github.com/patchlevel/event-sourcing-psalm-plugin)
-* [Admin Bundle](https://github.com/patchlevel/event-sourcing-admin-bundle)
