@@ -15,7 +15,7 @@ First we define the events that happen in our system.
 A hotel can be created with a `name` and an `id`:
 
 ```php
-namespace App\Event;
+namespace App\Events;
 
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Event;
@@ -33,7 +33,7 @@ final class HotelCreated
 A guest can check in by `name`:
 
 ```php
-namespace App\Event;
+namespace App\Events;
 
 use Patchlevel\EventSourcing\Attribute\Event;
 
@@ -49,7 +49,7 @@ final class GuestIsCheckedIn
 And also check out again:
 
 ```php
-namespace App\Event;
+namespace App\Events;
 
 use Patchlevel\EventSourcing\Attribute\Event;
 
@@ -75,11 +75,11 @@ In these methods the business checks are made and the events are recorded.
 Last but not least, we need the associated apply methods to change the state.
 
 ```php
-namespace App\Model;
+namespace App\Models;
 
-use App\Event\GuestIsCheckedIn;
-use App\Event\GuestIsCheckedOut;
-use App\Event\HotelCreated;
+use App\Events\GuestIsCheckedIn;
+use App\Events\GuestIsCheckedOut;
+use App\Events\HotelCreated;
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Aggregate;
 use Patchlevel\EventSourcing\Attribute\Apply;
@@ -89,6 +89,7 @@ use Patchlevel\LaravelEventSourcing\AggregateRoot;
 use function array_filter;
 use function array_values;
 use function in_array;
+use function sprintf;
 
 #[Aggregate(name: 'hotel')]
 final class Hotel extends AggregateRoot
@@ -121,7 +122,7 @@ final class Hotel extends AggregateRoot
     public function checkIn(string $guestName): void
     {
         if (in_array($guestName, $this->guests, true)) {
-            throw new GuestHasAlreadyCheckedIn($guestName);
+            throw new RuntimeException(sprintf('Guest %s is already checked in', $guestName));
         }
 
         $this->recordThat(new GuestIsCheckedIn($guestName));
@@ -130,7 +131,7 @@ final class Hotel extends AggregateRoot
     public function checkOut(string $guestName): void
     {
         if (!in_array($guestName, $this->guests, true)) {
-            throw new IsNotAGuest($guestName);
+            throw new RuntimeException(sprintf('Guest %s is not checked in', $guestName));
         }
 
         $this->recordThat(new GuestIsCheckedOut($guestName));
@@ -175,12 +176,13 @@ Each projector is then responsible for a specific projection.
 ```php
 namespace App\Subscribers;
 
-use App\Event\GuestIsCheckedIn;
-use App\Event\GuestIsCheckedOut;
-use App\Event\HotelCreated;
+use App\Events\GuestIsCheckedIn;
+use App\Events\GuestIsCheckedOut;
+use App\Events\HotelCreated;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Projector;
 use Patchlevel\EventSourcing\Attribute\Setup;
 use Patchlevel\EventSourcing\Attribute\Subscribe;
@@ -195,7 +197,7 @@ final class HotelProjection
     /** @return list<array{id: string, name: string, guests: int}> */
     public function getHotels(): array
     {
-        DB::select('select id, name, guests from ' . $this->table());
+        return DB::select('select id, name, guests from ' . $this->table());
     }
 
     #[Subscribe(HotelCreated::class)]
@@ -205,7 +207,7 @@ final class HotelProjection
             "insert into {$this->table()} (id, name, guests) values (?, ?, ?)",
             [
                 $event->id->toString(),
-                $event->name,
+                $event->hotelName,
                 0,
             ],
         );
@@ -251,18 +253,17 @@ final class HotelProjection
     }
 }
 ```
-
 You need to register the projector in the `event-sourcing.php` configuration file.
 
 ```php
+use App\Subscribers\HotelProjection;
+
 return [
     'subscribers' => [
-        App\Subscribers\HotelProjector::class,
+        HotelProjection::class,
     ],
 ];
-
 ```
-    
 !!! note
 
     You can find out more about projections in the [library](https://event-sourcing.patchlevel.io/latest/subscription/).
@@ -274,9 +275,13 @@ In our example we also want to send an email to the head office as soon as a gue
 ```php
 namespace App\Subscribers;
 
-use App\Event\GuestIsCheckedIn;
+use App\Events\GuestIsCheckedIn;
+use Illuminate\Mail\Message;
 use Illuminate\Support\Facades\Mail;
 use Patchlevel\EventSourcing\Attribute\Processor;
+use Patchlevel\EventSourcing\Attribute\Subscribe;
+
+use function sprintf;
 
 #[Processor('admin_emails')]
 final class SendCheckInEmailProcessor
@@ -284,37 +289,41 @@ final class SendCheckInEmailProcessor
     #[Subscribe(GuestIsCheckedIn::class)]
     public function onGuestIsCheckedIn(GuestIsCheckedIn $event): void
     {
-        Mail::to('hq@patchlevel.de')->send(new GuestCheckedIn($event->guestName));
+        Mail::raw('Event Sourcing is amazing!', static function (Message $message) use ($event): void {
+            $message
+                ->subject(sprintf('Guest %s checked in', $event->guestName))
+                ->to('info@patchlevel.de');
+        });
     }
 }
 ```
-
 You need to register the processor in the `event-sourcing.php` configuration file.
 
 ```php
+use App\Subscribers\SendCheckInEmailProcessor;
+
 return [
     'subscribers' => [
-        App\Subscribers\SendCheckInEmailProcessor::class,
+        SendCheckInEmailProcessor::class,
     ],
 ];
-
 ```
-
 !!! note
 
     You can find out more about processor in the [library](https://event-sourcing.patchlevel.io/latest/subscription/)
     
 ## Usage
 
-We are now ready to use the Event Sourcing System. We can load, change and save aggregates.
+We are now ready to use the Event Sourcing System.
+To demonstrate this, we create a controller that allows us to create hotels and check in and out guests.
 
 ```php
-namespace App\Hotel\Infrastructure\Controller;
+namespace App\Http\Controllers;
 
-use App\Model\Hotel;
+use App\Models\Hotel;
 use App\Subscribers\HotelProjection;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 
 use function response;
@@ -326,17 +335,18 @@ final class HotelController
     ) {
     }
 
-    public function listAction(): Response
+    public function list(): JsonResponse
     {
         return response()->json(
             $this->hotelProjection->getHotels(),
         );
     }
 
-    public function createAction(Request $request): Response
+    public function create(Request $request): JsonResponse
     {
-        $hotelName = $request->request->get('name'); // need validation!
-        $id = Uuid::v7();
+        $hotelName = $request->json('name'); // need validation!
+
+        $id = Uuid::generate();
 
         $hotel = Hotel::create($id, $hotelName);
         $hotel->save();
@@ -344,22 +354,22 @@ final class HotelController
         return response()->json(['id' => $id->toString()]);
     }
 
-    public function checkInAction(Uuid $hotelId, Request $request): Response
+    public function checkIn(string $id, Request $request): JsonResponse
     {
         $guestName = $request->request->get('name'); // need validation!
 
-        $hotel = Hotel::load($hotelId);
+        $hotel = Hotel::load(Uuid::fromString($id));
         $hotel->checkIn($guestName);
         $hotel->save();
 
         return response()->json();
     }
 
-    public function checkOutAction(Uuid $hotelId, Request $request): Response
+    public function checkOut(string $id, Request $request): JsonResponse
     {
         $guestName = $request->request->get('name'); // need validation!
 
-        $hotel = Hotel::load($hotelId);
+        $hotel = Hotel::load(Uuid::fromString($id));
         $hotel->checkOut($guestName);
         $hotel->save();
 
@@ -367,6 +377,21 @@ final class HotelController
     }
 }
 ```
+The last step is to define the routes in the `routes/api.php` file.
+
+```php
+use App\Http\Controllers\HotelController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/hotel', [HotelController::class, 'list']);
+Route::post('/hotel/create', [HotelController::class, 'create']);
+Route::post('/hotel/{id}/check-in', [HotelController::class, 'checkIn']);
+Route::post('/hotel/{id}/check-out', [HotelController::class, 'checkOut']);
+```
+!!! warning
+
+    Don't forget to define the path to the [api routes](https://laravel.com/docs/11.x/routing#api-routes) in the `bootstrap/app.php` configuration file.
+    
 ## Result
 
 !!! success

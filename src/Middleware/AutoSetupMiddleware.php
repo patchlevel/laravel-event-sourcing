@@ -6,10 +6,10 @@ namespace Patchlevel\LaravelEventSourcing\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngineCriteria;
 use Patchlevel\EventSourcing\Subscription\Status;
+use Symfony\Component\HttpFoundation\Response;
 
 final class AutoSetupMiddleware
 {

@@ -25,7 +25,7 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 ## Installation
 
 ```bash
-composer require patchlevel/laravel-event-sourcing
+composer require patchlevel/laravel-event-sourcing=1.0.0-beta2
 ```
 
 ## Documentation
