@@ -15,7 +15,7 @@ First we define the events that happen in our system.
 A hotel can be created with a `name` and an `id`:
 
 ```php
-namespace App\Hotel\Domain\Event;
+namespace App\Event;
 
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Event;
@@ -33,7 +33,7 @@ final class HotelCreated
 A guest can check in by `name`:
 
 ```php
-namespace App\Hotel\Domain\Event;
+namespace App\Event;
 
 use Patchlevel\EventSourcing\Attribute\Event;
 
@@ -49,7 +49,7 @@ final class GuestIsCheckedIn
 And also check out again:
 
 ```php
-namespace App\Hotel\Domain\Event;
+namespace App\Event;
 
 use Patchlevel\EventSourcing\Attribute\Event;
 
@@ -75,11 +75,11 @@ In these methods the business checks are made and the events are recorded.
 Last but not least, we need the associated apply methods to change the state.
 
 ```php
-namespace App\Hotel\Domain;
+namespace App\Model;
 
-use App\Hotel\Domain\Event\GuestIsCheckedIn;
-use App\Hotel\Domain\Event\GuestIsCheckedOut;
-use App\Hotel\Domain\Event\HotelCreated;
+use App\Event\GuestIsCheckedIn;
+use App\Event\GuestIsCheckedOut;
+use App\Event\HotelCreated;
 use Patchlevel\EventSourcing\Aggregate\Uuid;
 use Patchlevel\EventSourcing\Attribute\Aggregate;
 use Patchlevel\EventSourcing\Attribute\Apply;
@@ -173,11 +173,11 @@ we need a projection for it. To create a projection we need a projector.
 Each projector is then responsible for a specific projection.
 
 ```php
-namespace App\Hotel\Infrastructure\Projection;
+namespace App\Subscribers;
 
-use App\Hotel\Domain\Event\GuestIsCheckedIn;
-use App\Hotel\Domain\Event\GuestIsCheckedOut;
-use App\Hotel\Domain\Event\HotelCreated;
+use App\Event\GuestIsCheckedIn;
+use App\Event\GuestIsCheckedOut;
+use App\Event\HotelCreated;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -251,9 +251,17 @@ final class HotelProjection
     }
 }
 ```
-!!! warning
 
-    autoconfigure need to be enabled, otherwise you need add the `event_sourcing.subscriber` tag.
+You need to register the projector in the `event-sourcing.php` configuration file.
+
+```php
+return [
+    'subscribers' => [
+        App\Subscribers\HotelProjector::class,
+    ],
+];
+
+```
     
 !!! note
 
@@ -264,14 +272,14 @@ final class HotelProjection
 In our example we also want to send an email to the head office as soon as a guest is checked in.
 
 ```php
-namespace App\Hotel\Application\Processor;
+namespace App\Subscribers;
 
-use App\Hotel\Domain\Event\GuestIsCheckedIn;
+use App\Event\GuestIsCheckedIn;
 use Illuminate\Support\Facades\Mail;
 use Patchlevel\EventSourcing\Attribute\Processor;
 
 #[Processor('admin_emails')]
-final class SendCheckInEmailListener
+final class SendCheckInEmailProcessor
 {
     #[Subscribe(GuestIsCheckedIn::class)]
     public function onGuestIsCheckedIn(GuestIsCheckedIn $event): void
@@ -280,10 +288,18 @@ final class SendCheckInEmailListener
     }
 }
 ```
-!!! warning
 
-    autoconfigure need to be enabled, otherwise you need add the `event_sourcing.subscriber` tag.
-    
+You need to register the processor in the `event-sourcing.php` configuration file.
+
+```php
+return [
+    'subscribers' => [
+        App\Subscribers\SendCheckInEmailProcessor::class,
+    ],
+];
+
+```
+
 !!! note
 
     You can find out more about processor in the [library](https://event-sourcing.patchlevel.io/latest/subscription/)
@@ -295,8 +311,8 @@ We are now ready to use the Event Sourcing System. We can load, change and save 
 ```php
 namespace App\Hotel\Infrastructure\Controller;
 
-use App\Hotel\Domain\Hotel;
-use App\Hotel\Infrastructure\Projection\HotelProjection;
+use App\Model\Hotel;
+use App\Subscribers\HotelProjection;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Patchlevel\EventSourcing\Aggregate\Uuid;

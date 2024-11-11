@@ -1,4 +1,3 @@
-[![Type Coverage](https://shepherd.dev/github/patchlevel/laravel-event-sourcing/coverage.svg)](https://shepherd.dev/github/patchlevel/laravel-event-sourcing)
 [![Latest Stable Version](https://poser.pugx.org/patchlevel/laravel-event-sourcing/v)](//packagist.org/packages/patchlevel/laravel-event-sourcing)
 [![License](https://poser.pugx.org/patchlevel/laravel-event-sourcing/license)](//packagist.org/packages/patchlevel/laravel-event-sourcing)
 
@@ -20,7 +19,7 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 * Safe usage of [Personal Data](https://laravel-event-sourcing.patchlevel.io/latest/personal_data/) with crypto-shredding
 * Smooth [upcasting](https://laravel-event-sourcing.patchlevel.io/latest/upcasting/) of old events
 * Simple setup with [scheme management](https://laravel-event-sourcing.patchlevel.io/latest/store/) and [doctrine migration](https://laravel-event-sourcing.patchlevel.io/latest/store/)
-* Built in [cli commands](https://laravel-event-sourcing.patchlevel.io/latest/cli/) with [symfony](https://symfony.com/)
+* Built in [cli commands](https://event-sourcing.patchlevel.io/latest/cli/)
 * and much more...
 
 ## Installation
@@ -32,12 +31,8 @@ composer require patchlevel/laravel-event-sourcing
 ## Documentation
 
 * [Package Documentation](https://laravel-event-sourcing.patchlevel.io/latest/)
-* [Library Documentation](https://laravel-event-sourcing.patchlevel.io/latest/)
+* [Library Documentation](https://event-sourcing.patchlevel.io/latest/)
 * [Related Blog](https://patchlevel.de/blog)
-
-## Integration
-
-* [Psalm](https://github.com/patchlevel/event-sourcing-psalm-plugin)
 
 ## Sponsors
 

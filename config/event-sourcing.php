@@ -79,7 +79,15 @@ return [
             'enabled' => true,
             'ids' => null,
             'groups' => null,
-            'limit' => null
+            'limit' => null,
+        ],
+        'rebuild_after_file_change' => [
+            'enabled' => true,
+        ],
+        'auto_setup' => [
+            'enabled' => true,
+            'ids' => null,
+            'groups' => null,
         ],
     ],
 

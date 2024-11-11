@@ -33,26 +33,16 @@ And then run the migrations:
 ```bash
 php artisan migrate
 ```
-## Middlewares (optional)
+## Middlewares
 
-If you want to use the provided middlewares, you can add them to your `config/app.php`:
-
-### Auto Setup Middleware
-
-```php
-use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
-
-->withMiddleware(static function (Middleware $middleware): void {
-    $middleware->append(AutoSetupMiddleware::class);
-})
-```
-### Subscription Rebuild After File Change Middleware
+Some features need a middleware to work properly.
+You should add the middleware to your `bootstrap/app.php` file.
 
 ```php
-use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
+use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 
 ->withMiddleware(static function (Middleware $middleware): void {
-    $middleware->append(SubscriptionRebuildAfterFileChangeMiddleware::class);
+    $middleware->append(EventSourcingMiddleware::class);
 })
 ```
 !!! success

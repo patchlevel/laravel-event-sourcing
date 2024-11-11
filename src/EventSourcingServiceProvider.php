@@ -95,6 +95,7 @@ use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\Hydrator\Metadata\AttributeMetadataFactory;
 use Patchlevel\Hydrator\MetadataHydrator;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
+use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
 
 use function app;
@@ -602,6 +603,16 @@ class EventSourcingServiceProvider extends ServiceProvider
                 app(SubscriptionEngine::class),
                 $this->app->tagged('event_sourcing.subscriber'),
                 app(SubscriberMetadataFactory::class),
+            );
+        });
+
+        $this->app->singleton(EventSourcingMiddleware::class, static function () {
+            $autoSetup = config('event-sourcing.subscription.auto_setup.enabled');
+            $rebuildAfterFileChange = config('event-sourcing.subscription.rebuild_after_file_change.enabled');
+
+            return new EventSourcingMiddleware(
+                $autoSetup ? app(AutoSetupMiddleware::class) : null,
+                $rebuildAfterFileChange ? app(SubscriptionRebuildAfterFileChangeMiddleware::class) : null,
             );
         });
 
