@@ -28,6 +28,9 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 composer require patchlevel/laravel-event-sourcing=1.0.0-beta3
 ```
 
+> [!TIP]
+> Further installation steps can be found in the [installation instructions](https://laravel-event-sourcing.patchlevel.io/latest/installation/).
+
 ## Documentation
 
 * [Package Documentation](https://laravel-event-sourcing.patchlevel.io/latest/)
