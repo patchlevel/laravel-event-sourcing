@@ -33,8 +33,8 @@ composer require patchlevel/laravel-event-sourcing=1.0.0-beta3
 
 ## Documentation
 
-* [Package Documentation](https://laravel-event-sourcing.patchlevel.io/latest/)
-* [Library Documentation](https://event-sourcing.patchlevel.io/latest/)
+* [Package Documentation](https://laravel-event-sourcing.patchlevel.io/latest/getting_started/)
+* [Library Documentation](https://event-sourcing.patchlevel.io/latest/aggregate/)
 * [Related Blog](https://patchlevel.de/blog)
 
 ## Sponsors
