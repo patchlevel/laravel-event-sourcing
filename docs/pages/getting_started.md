@@ -180,6 +180,7 @@ use App\Events\GuestIsCheckedIn;
 use App\Events\GuestIsCheckedOut;
 use App\Events\HotelCreated;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Patchlevel\EventSourcing\Aggregate\Uuid;
@@ -194,41 +195,36 @@ final class HotelProjection
 {
     use SubscriberUtil;
 
-    /** @return list<array{id: string, name: string, guests: int}> */
-    public function getHotels(): array
+    /** @return Collection<array{id: string, name: string, guests: int}> */
+    public function getHotels(): Collection
     {
-        return DB::select('select id, name, guests from ' . $this->table());
+        return DB::table($this->table())->get();
     }
 
     #[Subscribe(HotelCreated::class)]
     public function handleHotelCreated(HotelCreated $event): void
     {
-        DB::insert(
-            "insert into {$this->table()} (id, name, guests) values (?, ?, ?)",
-            [
-                $event->id->toString(),
-                $event->hotelName,
-                0,
-            ],
-        );
+        DB::table($this->table())->insert([
+            'id' => $event->id->toString(),
+            'name' => $event->hotelName,
+            'guests' => 0,
+        ]);
     }
 
     #[Subscribe(GuestIsCheckedIn::class)]
     public function handleGuestIsCheckedIn(Uuid $hotelId): void
     {
-        DB::update(
-            "update {$this->table()} set guests = guests + 1 where id = ?",
-            [$hotelId->toString()],
-        );
+        DB::table($this->table())
+            ->where('id', $hotelId->toString())
+            ->increment('guests');
     }
 
     #[Subscribe(GuestIsCheckedOut::class)]
     public function handleGuestIsCheckedOut(Uuid $hotelId): void
     {
-        DB::update(
-            "update {$this->table()} set guests = guests - 1 where id = ?",
-            [$hotelId->toString()],
-        );
+        DB::table($this->table())
+            ->where('id', $hotelId->toString())
+            ->decrement('guests');
     }
 
     #[Setup]
