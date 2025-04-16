@@ -33,7 +33,7 @@
         "psalm/plugin-laravel": "^2.11",
         "roave/security-advisories": "dev-master",
         "symfony/var-dumper": "^6.4.0|^7.0.0",
-        "vimeo/psalm": "^5.17.0",
+        "vimeo/psalm": "^6.0.0",
         "wnx/commonmark-markdown-renderer": "^1.4",
         "larastan/larastan": "^v2.9.9",
         "laravel/framework": "^9.0|^10.0|^11.0"
