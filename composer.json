@@ -30,7 +30,7 @@
         "phpspec/prophecy-phpunit": "^2.1.0",
         "phpstan/phpstan": "^1.10.48",
         "phpunit/phpunit": "^10.5.2",
-        "psalm/plugin-laravel": "^2.11",
+        "psalm/plugin-laravel": "^3.0",
         "roave/security-advisories": "dev-master",
         "symfony/var-dumper": "^6.4.0|^7.0.0",
         "vimeo/psalm": "^5.17.0",
