@@ -36,7 +36,7 @@
         "vimeo/psalm": "^5.17.0",
         "wnx/commonmark-markdown-renderer": "^1.4",
         "larastan/larastan": "^v2.9.9",
-        "laravel/framework": "^9.0|^10.0|^11.0"
+        "laravel/framework": "12.14.1"
     },
     "config": {
         "preferred-install": {
