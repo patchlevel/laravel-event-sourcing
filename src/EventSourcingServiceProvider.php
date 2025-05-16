@@ -213,11 +213,12 @@ class EventSourcingServiceProvider extends ServiceProvider
             return DriverManager::getConnection(
                 [
                     'driver' => $driver,
-                    'dbname' => $connectionParams['database'],
-                    'user' => $connectionParams['username'],
-                    'password' => $connectionParams['password'],
-                    'host' => $connectionParams['host'],
-                    'port' => $connectionParams['port'],
+                    'dbname' => $connectionParams['database'] ?? null,
+                    'path' => $connectionParams['database'] ?? null,
+                    'user' => $connectionParams['username'] ?? null,
+                    'password' => $connectionParams['password'] ?? null,
+                    'host' => $connectionParams['host'] ?? null,
+                    'port' => $connectionParams['port'] ?? null,
                 ],
             );
         });
