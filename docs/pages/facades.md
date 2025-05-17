@@ -61,7 +61,7 @@ $messages = Store::load(
     new Criteria(
         new AggregateIdCriterion('123'),
     ),
-)
+);
 ```
 !!! note
 
