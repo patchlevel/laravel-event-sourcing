@@ -99,6 +99,7 @@ use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
 
 use function app;
+use function array_filter;
 use function array_key_exists;
 use function config;
 use function config_path;
@@ -184,7 +185,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 );
             }
 
-            /** @var array<string, array{url: string|null, driver: string, database: string, username: string, password: string, host: string, port: int}> $connections */
+            /** @var array<string, array{url: string|null, driver: string, database?: string|null, username?: string|null, password?: string|null, host?: string|null, port?: int|null}> $connections */
             $connections = config('database.connections');
 
             /** @var string $connectionKey */
@@ -211,15 +212,18 @@ class EventSourcingServiceProvider extends ServiceProvider
             };
 
             return DriverManager::getConnection(
-                [
-                    'driver' => $driver,
-                    'dbname' => $connectionParams['database'] ?? null,
-                    'path' => $connectionParams['database'] ?? null,
-                    'user' => $connectionParams['username'] ?? null,
-                    'password' => $connectionParams['password'] ?? null,
-                    'host' => $connectionParams['host'] ?? null,
-                    'port' => $connectionParams['port'] ?? null,
-                ],
+                array_filter(
+                    [
+                        'driver' => $driver,
+                        'dbname' => $connectionParams['database'] ?? null,
+                        'path' => $connectionParams['database'] ?? null,
+                        'user' => $connectionParams['username'] ?? null,
+                        'password' => $connectionParams['password'] ?? null,
+                        'host' => $connectionParams['host'] ?? null,
+                        'port' => $connectionParams['port'] ?? null,
+                    ],
+                    static fn (mixed $value) => $value !== null,
+                ),
             );
         });
     }
