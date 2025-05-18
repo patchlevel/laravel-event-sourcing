@@ -41,9 +41,9 @@ You should add the middleware to your `bootstrap/app.php` file.
 ```php
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 
-->withMiddleware(static function (Middleware $middleware): void {
+$app->withMiddleware(static function (Middleware $middleware): void {
     $middleware->append(EventSourcingMiddleware::class);
-})
+});
 ```
 !!! success
 
