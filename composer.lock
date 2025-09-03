@@ -1403,20 +1403,20 @@
         },
         {
             "name": "laravel/framework",
-            "version": "v12.26.4",
+            "version": "v12.27.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laravel/framework.git",
-                "reference": "085a367a32ba86fcfa647bfc796098ae6f795b09"
+                "reference": "168844fe531baaa11db00f7902fd0116d46d3bdd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laravel/framework/zipball/085a367a32ba86fcfa647bfc796098ae6f795b09",
-                "reference": "085a367a32ba86fcfa647bfc796098ae6f795b09",
+                "url": "https://api.github.com/repos/laravel/framework/zipball/168844fe531baaa11db00f7902fd0116d46d3bdd",
+                "reference": "168844fe531baaa11db00f7902fd0116d46d3bdd",
                 "shasum": ""
             },
             "require": {
-                "brick/math": "^0.11|^0.12|^0.13",
+                "brick/math": "^0.11|^0.12|^0.13|^0.14",
                 "composer-runtime-api": "^2.2",
                 "doctrine/inflector": "^2.0.5",
                 "dragonmantank/cron-expression": "^3.4",
@@ -1616,7 +1616,7 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2025-08-29T14:15:53+00:00"
+            "time": "2025-09-02T23:59:38+00:00"
         },
         {
             "name": "laravel/prompts",
@@ -8167,16 +8167,16 @@
         },
         {
             "name": "phpunit/php-code-coverage",
-            "version": "12.3.5",
+            "version": "12.3.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sebastianbergmann/php-code-coverage.git",
-                "reference": "96dc0466673e215bf5536301039017f03cd45c6b"
+                "reference": "da2cdaff87220fa641e7652364281b736e4347e0"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sebastianbergmann/php-code-coverage/zipball/96dc0466673e215bf5536301039017f03cd45c6b",
-                "reference": "96dc0466673e215bf5536301039017f03cd45c6b",
+                "url": "https://api.github.com/repos/sebastianbergmann/php-code-coverage/zipball/da2cdaff87220fa641e7652364281b736e4347e0",
+                "reference": "da2cdaff87220fa641e7652364281b736e4347e0",
                 "shasum": ""
             },
             "require": {
@@ -8232,7 +8232,7 @@
             "support": {
                 "issues": "https://github.com/sebastianbergmann/php-code-coverage/issues",
                 "security": "https://github.com/sebastianbergmann/php-code-coverage/security/policy",
-                "source": "https://github.com/sebastianbergmann/php-code-coverage/tree/12.3.5"
+                "source": "https://github.com/sebastianbergmann/php-code-coverage/tree/12.3.6"
             },
             "funding": [
                 {
@@ -8252,7 +8252,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2025-09-01T08:07:42+00:00"
+            "time": "2025-09-02T05:23:14+00:00"
         },
         {
             "name": "phpunit/php-file-iterator",
@@ -8610,12 +8610,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/Roave/SecurityAdvisories.git",
-                "reference": "e7589e01dc8452bfecb4c8df977346cd3132650f"
+                "reference": "4fbe7e09e34b1554269750e19674f1f6fd84a4ae"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Roave/SecurityAdvisories/zipball/e7589e01dc8452bfecb4c8df977346cd3132650f",
-                "reference": "e7589e01dc8452bfecb4c8df977346cd3132650f",
+                "url": "https://api.github.com/repos/Roave/SecurityAdvisories/zipball/4fbe7e09e34b1554269750e19674f1f6fd84a4ae",
+                "reference": "4fbe7e09e34b1554269750e19674f1f6fd84a4ae",
                 "shasum": ""
             },
             "conflict": {
@@ -9185,7 +9185,7 @@
                 "pixelfed/pixelfed": "<0.12.5",
                 "plotly/plotly.js": "<2.25.2",
                 "pocketmine/bedrock-protocol": "<8.0.2",
-                "pocketmine/pocketmine-mp": "<5.25.2",
+                "pocketmine/pocketmine-mp": "<5.32.1",
                 "pocketmine/raklib": ">=0.14,<0.14.6|>=0.15,<0.15.1",
                 "pressbooks/pressbooks": "<5.18",
                 "prestashop/autoupgrade": ">=4,<4.10.1",
@@ -9566,7 +9566,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2025-08-29T15:04:47+00:00"
+            "time": "2025-09-02T17:05:04+00:00"
         },
         {
             "name": "sanmai/di-container",
