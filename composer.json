@@ -32,7 +32,7 @@
         "roave/security-advisories": "dev-master",
         "symfony/var-dumper": "^6.4.0 || ^7.0.0",
         "wnx/commonmark-markdown-renderer": "^1.4",
-        "larastan/larastan": "v3.3.0",
+        "larastan/larastan": "v3.7.2",
         "laravel/framework": "^10.0 || ^11.0 || ^12.0"
     },
     "config": {
