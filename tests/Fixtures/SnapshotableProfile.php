@@ -1,0 +1,26 @@
+<?php
+
+namespace Patchlevel\LaravelEventSourcing\Tests\Fixtures;
+
+use Patchlevel\EventSourcing\Aggregate\CustomId;
+use Patchlevel\EventSourcing\Attribute\Aggregate;
+use Patchlevel\EventSourcing\Attribute\Apply;
+use Patchlevel\EventSourcing\Attribute\Id;
+use Patchlevel\EventSourcing\Attribute\Snapshot;
+use Patchlevel\EventSourcing\Serializer\Normalizer\IdNormalizer;
+use Patchlevel\LaravelEventSourcing\AggregateRoot;
+
+#[Aggregate('snapshotable_profile')]
+#[Snapshot('default')]
+class SnapshotableProfile extends AggregateRoot
+{
+    #[Id]
+    #[IdNormalizer(CustomId::class)]
+    private CustomId $id;
+
+    #[Apply]
+    protected function applyProfileCreated(ProfileCreated $event): void
+    {
+        // do nothing
+    }
+}

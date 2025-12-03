@@ -1,6 +1,6 @@
 # https://help.github.com/en/categories/automating-your-workflow-with-github-actions
 
-name: "Static Analysis by PHPStan"
+name: "PHPUnit tests"
 
 on:
   pull_request:
@@ -10,20 +10,31 @@ on:
       - "renovate/*"
 
 jobs:
-  static-analysis-phpstan:
-    name: "Static Analysis by PHPStan"
+  phpunit:
+    name: "PHPUnit tests"
 
     runs-on: ${{ matrix.operating-system }}
 
     strategy:
       matrix:
         dependencies:
-          - "locked"
+          - "lowest"
+          - "highest"
         php-version:
+          - "8.2"
+          - "8.3"
+          - "8.4"
           - "8.5"
         operating-system:
           - "ubuntu-latest"
-
+          - "windows-latest"
+        include:
+          - dependencies: "locked"
+            php-version: "8.5"
+            operating-system: "ubuntu-latest"
+          - dependencies: "locked"
+            php-version: "8.5"
+            operating-system: "windows-latest"
     steps:
       - name: "Checkout"
         uses: actions/checkout@v6
@@ -31,12 +42,14 @@ jobs:
       - name: "Install PHP"
         uses: "shivammathur/setup-php@2.36.0"
         with:
+          coverage: "pcov"
           php-version: "${{ matrix.php-version }}"
           ini-values: memory_limit=-1
+          extensions: pdo_sqlite, sqlite3, fileinfo
 
       - uses: ramsey/composer-install@3.1.1
         with:
           dependency-versions: ${{ matrix.dependencies }}
 
-      - name: "PHPStan"
-        run: "vendor/bin/phpstan analyse"
+      - name: "Tests"
+        run: "vendor/bin/phpunit --coverage-clover=clover.xml --coverage-text"
