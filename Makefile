@@ -24,6 +24,14 @@ phpstan-baseline: vendor                                                        
 phpunit: vendor                                                                 ## run phpunit tests
 	XDEBUG_MODE=coverage vendor/bin/phpunit
 
+.PHONY: infection
+infection: vendor                                                               ## run infection
+	php -d memory_limit=312M vendor/bin/infection --threads=5
+
+.PHONY: infection-diff
+infection-diff: vendor                                                          ## run infection on differences
+	php -d memory_limit=312M vendor/bin/infection --threads=max --git-diff-lines --git-diff-base=origin/HEAD --ignore-msi-with-no-mutations --only-covered --min-msi=80 --min-covered-msi=95
+
 .PHONY: static
 static: psalm phpstan phpcs-check                                               ## run static analyser
 
