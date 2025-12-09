@@ -13,7 +13,7 @@ for [event-sourcing](https://github.com/patchlevel/event-sourcing) library.
 * Automatic [snapshot](https://event-sourcing.patchlevel.io/latest/snapshots/)-system to boost your performance
 * [Split](https://event-sourcing.patchlevel.io/latest/split_stream/) big aggregates into multiple streams
 * Versioned and managed lifecycle of [subscriptions](https://event-sourcing.patchlevel.io/latest/subscription/) like projections and processors
-* Safe usage of [Personal Data](https://event-sourcing.patchlevel.io/latest/personal_data/) with crypto-shredding
+* Safe usage of [Sensitive Data](https://event-sourcing.patchlevel.io/latest/personal_data/) with crypto-shredding
 * Smooth [upcasting](https://event-sourcing.patchlevel.io/latest/upcasting/) of old events
 * Simple setup with [scheme management](https://event-sourcing.patchlevel.io/latest/store/) and [doctrine migration](https://event-sourcing.patchlevel.io/latest/store/)
 * Built in [cli commands](https://event-sourcing.patchlevel.io/latest/cli/)

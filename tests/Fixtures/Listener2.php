@@ -4,9 +4,7 @@ namespace Patchlevel\LaravelEventSourcing\Tests\Fixtures;
 
 use Patchlevel\EventSourcing\Attribute\Subscribe;
 use Patchlevel\EventSourcing\Message\Message;
-use Patchlevel\LaravelEventSourcing\Attribute\AsListener;
 
-#[AsListener]
 class Listener2
 {
     #[Subscribe(ProfileCreated::class)]

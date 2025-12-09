@@ -1,5 +1,7 @@
 <?php
 
+use Patchlevel\EventSourcing\Repository\AggregateOutdated;
+
 return [
     /*
     |--------------------------------------------------------------------------
@@ -17,6 +19,7 @@ return [
             'EVENT_SOURCING_DB_CONNECTION',
             env('DB_CONNECTION', 'sqlite')
         ),
+        'provide_dedicated_connection' => true,
     ],
 
     /*
@@ -27,7 +30,7 @@ return [
     | Here you can configure the event store.
     | You can choose between different types of stores.
     | dbal_aggregate (default): Store events in a single table with the aggregate and aggregate id.
-    | dbal_stream (experimental): Store events in a single table with a stream id.
+    | dbal_stream (new default in 4.x): Store events in a single table with a stream id.
     | in_memory: Store events in memory.
     | custom: Use a custom store, you need to provide a service.
     |
@@ -37,7 +40,36 @@ return [
         'service' => null,
         'options' => [
             'table_name' => 'eventstore',
-        ]
+        ],
+        'readonly' => false,
+        'migrate_to_new_store' => [
+            'enabled' => false,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Migrate Store
+    |--------------------------------------------------------------------------
+    |
+    | Here you can configure the migration options for the event store.
+    | If you enable this option you can use our migration services for a smooth migration.
+    | You can specify which translators should be used for the migratiop process and also
+    | to which store you want to migrate.
+    |
+    | You can choose between different types of stores:
+    | dbal_aggregate (default): Store events in a single table with the aggregate and aggregate id.
+    | dbal_stream (new default in 4.x): Store events in a single table with a stream id.
+    | in_memory: Store events in memory.
+    | custom: Use a custom store, you need to provide a service.
+    |
+    */
+    'migrate_to_new_store' => [
+        'enabled' => false,
+        'type' => '',
+        'service' => null,
+        'options' => [],
+        'translators' => [],
     ],
 
     /*
@@ -69,11 +101,30 @@ return [
     */
     'subscription' => [
         'throw_on_error' => true,
-        'catch_up' => true,
-        'retry_strategy' => [
-            'base_delay' => 5,
-            'delay_factor' => 2,
-            'max_attempts' => 5,
+        'catch_up' => [
+            'enabled' => true,
+            'limit' => null,
+        ],
+        'retry_strategies' => [
+            'default' => [
+                'type' => 'clock_based',
+                'options' => [
+                    'base_delay' => 5,
+                    'delay_factor' => 2,
+                    'max_attempts' => 5,
+                ],
+            ],
+            'no_retry' => [
+                'type' => 'no_retry',
+            ],
+        ],
+        'default_retry_strategy' => 'default',
+        'store' => [
+            'type' => 'dbal',
+            'service' => null,
+            'options' => [
+                'table_name' => 'subscriptions',
+            ],
         ],
         'run_after_aggregate_save' => [
             'enabled' => true,
@@ -89,6 +140,11 @@ return [
             'ids' => null,
             'groups' => null,
         ],
+        'gap_detection' => [
+            'enabled' => true,
+            'retries_in_ms' => [0, 5, 50, 500],
+            'detection_window' => 'PT5M',
+        ],
     ],
 
     /*
@@ -98,11 +154,73 @@ return [
     |
     | Here you can enable or disable the cryptography.
     | You can also define the algorithm for the cryptography.
+    | It is disabled by default, because it requires the openssl extension
+    | and has a performance impact due to registered listeners.
     |
     */
     'cryptography' => [
+        'enabled' => false,
+        'algorithm' => 'aes256',
+        'use_encrypted_field_name' => true,
+        'fallback_to_field_name' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | CommandBus
+    |--------------------------------------------------------------------------
+    |
+    | Here you can enable or disable the command bus.
+    | You can also configure the command bus regarding the retries and the handlers.
+    |
+    */
+    'command_bus' => [
         'enabled' => true,
-        'algorithm' => 'aes256'
+        'instant_retry' => [
+            'max_retries' => 3,
+            'exceptions' => [
+                AggregateOutdated::class,
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | QueryBus
+    |--------------------------------------------------------------------------
+    |
+    | Here you can enable or disable the query bus.
+    |
+    */
+    'query_bus' => [
+        'enabled' => true,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | EventBus
+    |--------------------------------------------------------------------------
+    |
+    | Here you can enable or disable the event bus.
+    | The subscription engine is highly recommended to use instead of the event bus.
+    |
+    */
+    'event_bus' => [
+        'enabled' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Clock
+    |--------------------------------------------------------------------------
+    |
+    | Here you can enable or disable the freeze clock or set a custom clock.
+    | This is useful for testing purposes.
+    |
+    */
+    'clock' => [
+        'freeze' => null,
+        'service' => null,
     ],
 
     /*

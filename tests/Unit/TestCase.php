@@ -36,4 +36,11 @@ abstract class TestCase extends Orchestra
         $app['config']->set('event-sourcing.aggregates', [__DIR__ . '/../Fixtures']);
         $app['config']->set('event-sourcing.events', [__DIR__ . '/../Fixtures']);
     }
+
+    protected function setConfig(string $name, $value)
+    {
+        config()->set($name, $value);
+
+        (new EventSourcingServiceProvider($this->app))->register();
+    }
 }
