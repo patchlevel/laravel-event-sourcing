@@ -7,7 +7,7 @@ use Patchlevel\EventSourcing\Attribute\Aggregate;
 use Patchlevel\EventSourcing\Attribute\Apply;
 use Patchlevel\EventSourcing\Attribute\Handle;
 use Patchlevel\EventSourcing\Attribute\Id;
-use Patchlevel\EventSourcing\Repository\Repository;
+use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\LaravelEventSourcing\AggregateRoot;
 
 #[Aggregate('profile')]
@@ -19,7 +19,7 @@ class Profile extends AggregateRoot
     #[Handle]
     public static function create(
         CreateProfile $command,
-        Repository $profileRepository
+        Hydrator $hydrator,
     ): self
     {
         $profile = new self();

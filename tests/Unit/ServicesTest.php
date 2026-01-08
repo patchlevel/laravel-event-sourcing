@@ -6,6 +6,8 @@ namespace Patchlevel\LaravelEventSourcing\Tests\Unit;
 
 use Doctrine\DBAL\Connection;
 use Patchlevel\EventSourcing\Clock\SystemClock;
+use Patchlevel\EventSourcing\CommandBus\CommandBus;
+use Patchlevel\EventSourcing\CommandBus\InstantRetryCommandBus;
 use Patchlevel\EventSourcing\Console\Command\DatabaseCreateCommand;
 use Patchlevel\EventSourcing\Console\Command\DatabaseDropCommand;
 use Patchlevel\EventSourcing\Console\Command\DebugCommand;
@@ -43,6 +45,8 @@ use Patchlevel\EventSourcing\Metadata\Message\MessageHeaderRegistry;
 use Patchlevel\EventSourcing\Metadata\Message\MessageHeaderRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Subscriber\AttributeSubscriberMetadataFactory;
 use Patchlevel\EventSourcing\Metadata\Subscriber\SubscriberMetadataFactory;
+use Patchlevel\EventSourcing\QueryBus\QueryBus;
+use Patchlevel\EventSourcing\QueryBus\SyncQueryBus;
 use Patchlevel\EventSourcing\Repository\MessageDecorator\ChainMessageDecorator;
 use Patchlevel\EventSourcing\Repository\MessageDecorator\MessageDecorator;
 use Patchlevel\EventSourcing\Repository\MessageDecorator\SplitStreamDecorator;
@@ -62,11 +66,12 @@ use Patchlevel\EventSourcing\Snapshot\SnapshotStore;
 use Patchlevel\EventSourcing\Store\DoctrineDbalStore;
 use Patchlevel\EventSourcing\Store\Store;
 use Patchlevel\EventSourcing\Subscription\Engine\CatchUpSubscriptionEngine;
-use Patchlevel\EventSourcing\Subscription\Engine\DefaultSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\Engine\GapResolverStoreMessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\MessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\StoreMessageLoader;
 use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Repository\RunSubscriptionEngineRepositoryManager;
-use Patchlevel\EventSourcing\Subscription\RetryStrategy\ClockBasedRetryStrategy;
-use Patchlevel\EventSourcing\Subscription\RetryStrategy\RetryStrategy;
+use Patchlevel\EventSourcing\Subscription\RetryStrategy\RetryStrategyRepository;
 use Patchlevel\EventSourcing\Subscription\Store\DoctrineSubscriptionStore;
 use Patchlevel\EventSourcing\Subscription\Store\SubscriptionStore;
 use Patchlevel\EventSourcing\Subscription\Subscriber\MetadataSubscriberAccessorRepository;
@@ -84,6 +89,9 @@ use Patchlevel\Hydrator\MetadataHydrator;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
+use Patchlevel\LaravelEventSourcing\Tests\Fixtures\Profile;
+use Patchlevel\LaravelEventSourcing\Tests\Fixtures\ProfileProcessor;
+use Patchlevel\LaravelEventSourcing\Tests\Fixtures\ProfileProjector;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 final class ServicesTest extends TestCase
@@ -95,12 +103,18 @@ final class ServicesTest extends TestCase
     #[DataProvider('provideServices')]
     public function testServiceIsAvailable(string $serviceClass, string $concreteClass): void
     {
+        $this->setConfig('event-sourcing.event_bus.enabled', true);
+        $this->setConfig('event-sourcing.cryptography.enabled', true);
+
         $service = $this->app->get($serviceClass);
 
         self::assertNotNull($service);
         self::assertInstanceOf($concreteClass, $service);
     }
 
+    /**
+     * @return iterable<array{0: class-string|string, 1: class-string}>
+     */
     public static function provideServices(): iterable
     {
         yield [EventMetadataFactory::class, AttributeEventMetadataFactory::class];
@@ -109,6 +123,7 @@ final class ServicesTest extends TestCase
         yield [AggregateRootMetadataFactory::class, AggregateRootMetadataAwareMetadataFactory::class];
         yield [SubscriberMetadataFactory::class, AttributeSubscriberMetadataFactory::class];
         yield ['event_sourcing.dbal_connection', Connection::class];
+        yield ['event_sourcing.dbal_public_connection', Connection::class];
         yield [Store::class, DoctrineDbalStore::class];
         yield [EventRegistry::class, EventRegistry::class];
         yield [EventSerializer::class, DefaultEventSerializer::class];
@@ -132,11 +147,14 @@ final class ServicesTest extends TestCase
         yield [Upcaster::class, UpcasterChain::class];
         yield [MessageDecorator::class, ChainMessageDecorator::class];
         yield [SplitStreamDecorator::class, SplitStreamDecorator::class];
+        yield [CommandBus::class, InstantRetryCommandBus::class];
+        yield [QueryBus::class, SyncQueryBus::class];
+        yield [MessageLoader::class, GapResolverStoreMessageLoader::class];
         yield [ListenerProvider::class, AttributeListenerProvider::class];
         yield [Consumer::class, DefaultConsumer::class];
         yield [EventBus::class, DefaultEventBus::class];
         yield [SnapshotStore::class, DefaultSnapshotStore::class];
-        yield [RetryStrategy::class, ClockBasedRetryStrategy::class];
+        yield [RetryStrategyRepository::class, RetryStrategyRepository::class];
         yield [SubscriberHelper::class, SubscriberHelper::class];
         yield [SubscriptionStore::class, DoctrineSubscriptionStore::class];
         yield [SubscriberAccessorRepository::class, MetadataSubscriberAccessorRepository::class];
@@ -156,5 +174,32 @@ final class ServicesTest extends TestCase
         yield [CipherKeyStore::class, DoctrineCipherKeyStore::class];
         yield [Cipher::class, OpensslCipher::class];
         yield [PayloadCryptographer::class, PersonalDataPayloadCryptographer::class];
+    }
+
+    public function testPublicConnectionIsNotSameAsPrivate(): void
+    {
+        /** @var Connection $private */
+        $private = $this->app->get('event_sourcing.dbal_connection');
+        /** @var Connection $public */
+        $public = $this->app->get('event_sourcing.dbal_public_connection');
+
+        self::assertNotSame($public, $private);
+        self::assertEquals($public->getParams(), $private->getParams());
+    }
+
+    public function testAttributeProjectionConnectionInjection(): void
+    {
+        $public = $this->app->get('event_sourcing.dbal_public_connection');
+        $service = $this->app->get(ProfileProjector::class);
+
+        self::assertSame($public, $service->connection);
+    }
+
+    public function testAttributeAggregateRepositoryInjection(): void
+    {
+        $service = $this->app->get(ProfileProcessor::class);
+        $public = $this->app->get(RepositoryManager::class)->get(Profile::class);
+
+        self::assertEquals($public, $service->repository);
     }
 }

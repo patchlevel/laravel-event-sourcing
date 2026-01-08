@@ -6,6 +6,7 @@ namespace Patchlevel\LaravelEventSourcing\Tests\Unit;
 
 use Patchlevel\EventSourcing\Aggregate\CustomId;
 use Patchlevel\EventSourcing\Repository\Repository;
+use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\CreateProfile;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\Profile;
 
@@ -19,14 +20,14 @@ final class AggregateRootTest extends TestCase
 
     public function testRepositoryAvailableAndAggregateCanBeSaved(): void
     {
-        $profile = Profile::create(new CreateProfile(CustomId::fromString('1')), $this->createMock(Repository::class));
+        $profile = Profile::create(new CreateProfile(CustomId::fromString('1')), $this->createMock(Hydrator::class));
         $profile->save();
         self::assertTrue(true);
     }
 
     public function testRepositoryAvailableAndAggregateCanBeLoaded(): void
     {
-        $profile = Profile::create(new CreateProfile(CustomId::fromString('1')), $this->createMock(Repository::class));
+        $profile = Profile::create(new CreateProfile(CustomId::fromString('1')), $this->createMock(Hydrator::class));
         $profile->save();
 
         $profile2 = Profile::load(CustomId::fromString('1'));
@@ -37,7 +38,7 @@ final class AggregateRootTest extends TestCase
 
     public function testRepositoryAvailableAndAggregateCanBeChecked(): void
     {
-        $profile = Profile::create(new CreateProfile(CustomId::fromString('1')), $this->createMock(Repository::class));
+        $profile = Profile::create(new CreateProfile(CustomId::fromString('1')), $this->createMock(Hydrator::class));
         $profile->save();
 
         self::assertFalse(Profile::has(CustomId::fromString('2')));

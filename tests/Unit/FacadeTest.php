@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Patchlevel\LaravelEventSourcing\Tests\Unit;
 
+use Doctrine\DBAL\Connection;
 use Illuminate\Support\Facades\Facade;
 use Patchlevel\EventSourcing\Repository\RepositoryManager;
+use Patchlevel\LaravelEventSourcing\Facade\CommandBus;
+use Patchlevel\LaravelEventSourcing\Facade\ProjectionConnection;
+use Patchlevel\LaravelEventSourcing\Facade\QueryBus;
 use Patchlevel\LaravelEventSourcing\Facade\Repository;
 use Patchlevel\LaravelEventSourcing\Facade\Store;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -29,5 +33,8 @@ final class FacadeTest extends TestCase
     {
         yield [Repository::class, RepositoryManager::class];
         yield [Store::class, \Patchlevel\EventSourcing\Store\Store::class];
+        yield [CommandBus::class, \Patchlevel\EventSourcing\CommandBus\CommandBus::class];
+        yield [QueryBus::class, \Patchlevel\EventSourcing\QueryBus\QueryBus::class];
+        yield [ProjectionConnection::class, Connection::class];
     }
 }

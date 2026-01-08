@@ -68,3 +68,30 @@ $messages = Store::load(
     This documentation is limited to the package integration.
     You should also read the [library documentation](https://event-sourcing.patchlevel.io/latest/).
     
+## Projection Connection
+
+You can access the projection connection using the `ProjectionConnection` facade.
+This facade provides you the `DBAL\Connection` used to connect to the projection database.
+
+!!! note
+
+    This documentation is limited to the package integration.
+    You should also read the [dbal documentation](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/data-retrieval-and-manipulation.html#api).
+    
+## CommandBus
+
+You can access the command bus using the `CommandBus` facade. With this facade you can dispatch commands.
+
+```php
+CommandBus::dispatch(new BookHotel());
+```
+Then, the command will be handled by the corresponding command handler specified via `#[Handle]` attribute.
+
+## QueryBus
+
+You can access the query bus using the `QueryBus` facade. With this facade you can dispatch queries.
+
+```php
+$result = QueryBus::dispatch(new HotelCountQuery());
+```
+Then, the query will be handled by the corresponding query handler specified via `#[Answer]` attribute.

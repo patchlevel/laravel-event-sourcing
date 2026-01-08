@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Patchlevel\LaravelEventSourcing;
 
+use DateInterval;
 use DateTimeImmutable;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
@@ -11,6 +12,10 @@ use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Patchlevel\EventSourcing\Clock\FrozenClock;
 use Patchlevel\EventSourcing\Clock\SystemClock;
+use Patchlevel\EventSourcing\CommandBus\AggregateHandlerProvider;
+use Patchlevel\EventSourcing\CommandBus\CommandBus;
+use Patchlevel\EventSourcing\CommandBus\InstantRetryCommandBus;
+use Patchlevel\EventSourcing\CommandBus\SyncCommandBus;
 use Patchlevel\EventSourcing\Console\Command\DatabaseCreateCommand;
 use Patchlevel\EventSourcing\Console\Command\DatabaseDropCommand;
 use Patchlevel\EventSourcing\Console\Command\DebugCommand;
@@ -19,6 +24,7 @@ use Patchlevel\EventSourcing\Console\Command\SchemaDropCommand;
 use Patchlevel\EventSourcing\Console\Command\SchemaUpdateCommand;
 use Patchlevel\EventSourcing\Console\Command\ShowAggregateCommand;
 use Patchlevel\EventSourcing\Console\Command\ShowCommand;
+use Patchlevel\EventSourcing\Console\Command\StoreMigrateCommand;
 use Patchlevel\EventSourcing\Console\Command\SubscriptionBootCommand;
 use Patchlevel\EventSourcing\Console\Command\SubscriptionPauseCommand;
 use Patchlevel\EventSourcing\Console\Command\SubscriptionReactivateCommand;
@@ -51,6 +57,9 @@ use Patchlevel\EventSourcing\Metadata\Message\MessageHeaderRegistry;
 use Patchlevel\EventSourcing\Metadata\Message\MessageHeaderRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Subscriber\AttributeSubscriberMetadataFactory;
 use Patchlevel\EventSourcing\Metadata\Subscriber\SubscriberMetadataFactory;
+use Patchlevel\EventSourcing\QueryBus\QueryBus;
+use Patchlevel\EventSourcing\QueryBus\ServiceHandlerProvider;
+use Patchlevel\EventSourcing\QueryBus\SyncQueryBus;
 use Patchlevel\EventSourcing\Repository\DefaultRepositoryManager;
 use Patchlevel\EventSourcing\Repository\MessageDecorator\ChainMessageDecorator;
 use Patchlevel\EventSourcing\Repository\MessageDecorator\MessageDecorator;
@@ -70,17 +79,28 @@ use Patchlevel\EventSourcing\Snapshot\DefaultSnapshotStore;
 use Patchlevel\EventSourcing\Snapshot\SnapshotStore;
 use Patchlevel\EventSourcing\Store\DoctrineDbalStore;
 use Patchlevel\EventSourcing\Store\InMemoryStore;
+use Patchlevel\EventSourcing\Store\ReadOnlyStore;
 use Patchlevel\EventSourcing\Store\Store;
 use Patchlevel\EventSourcing\Store\StreamDoctrineDbalStore;
+use Patchlevel\EventSourcing\Store\StreamReadOnlyStore;
 use Patchlevel\EventSourcing\Subscription\Engine\CatchUpSubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Engine\DefaultSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\Engine\GapResolverStoreMessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\MessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\StoreMessageLoader;
 use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Engine\ThrowOnErrorSubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Repository\RunSubscriptionEngineRepositoryManager;
 use Patchlevel\EventSourcing\Subscription\RetryStrategy\ClockBasedRetryStrategy;
-use Patchlevel\EventSourcing\Subscription\RetryStrategy\RetryStrategy;
+use Patchlevel\EventSourcing\Subscription\RetryStrategy\NoRetryStrategy;
+use Patchlevel\EventSourcing\Subscription\RetryStrategy\RetryStrategyRepository;
 use Patchlevel\EventSourcing\Subscription\Store\DoctrineSubscriptionStore;
+use Patchlevel\EventSourcing\Subscription\Store\InMemorySubscriptionStore;
 use Patchlevel\EventSourcing\Subscription\Store\SubscriptionStore;
+use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\EventArgumentResolver;
+use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\LookupResolver;
+use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\MessageArgumentResolver;
+use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\RecordedOnArgumentResolver;
 use Patchlevel\EventSourcing\Subscription\Subscriber\MetadataSubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscriber\SubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscriber\SubscriberHelper;
@@ -97,6 +117,7 @@ use Patchlevel\Hydrator\MetadataHydrator;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
+use Patchlevel\LaravelEventSourcing\Subscription\StaticInMemorySubscriptionStoreFactory;
 
 use function app;
 use function array_filter;
@@ -151,6 +172,7 @@ class EventSourcingServiceProvider extends ServiceProvider
             SubscriptionStatusCommand::class,
             SubscriptionPauseCommand::class,
             SubscriptionReactivateCommand::class,
+            StoreMigrateCommand::class,
         ]);
     }
 
@@ -158,25 +180,63 @@ class EventSourcingServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/event-sourcing.php', 'event-sourcing');
 
+        $this->registerHydrator();
+        $this->registerUpcaster();
+        $this->registerSerializer();
+        $this->registerMessageDecorator();
+        $this->registerCommandBus();
+        $this->registerEventBus();
+        $this->registerQueryBus();
         $this->registerConnection();
         $this->registerStore();
-        $this->registerSerializer();
-        $this->registerHydrator();
-        $this->registerClock();
+        $this->registerSnapshots();
         $this->registerAggregates();
         $this->registerDebugCommands();
+        // add maybe telescope integration?
+        $this->registerClock();
         $this->registerSchema();
-        $this->registerUpcaster();
-        $this->registerMessageDecorator();
-        $this->registerEventBus();
-        $this->registerSnapshots();
+        $this->registerMessageLoader();
         $this->registerSubscription();
         $this->registerCryptography();
+        // do we want to add doctrine migrations?
+        // $this->registerValueResolver(); in symf bundle we have an id route resolver - this seems not easy possible
+        $this->registerStoreMigration();
+    }
+
+    private function registerCommandBus(): void
+    {
+        if (!config('event-sourcing.command_bus.enabled')) {
+            return;
+        }
+
+        $this->app->singleton(
+            CommandBus::class,
+            static fn ($app) => new InstantRetryCommandBus(
+                new SyncCommandBus(app(AggregateHandlerProvider::class)),
+                config('event-sourcing.command_bus.instant_retry.max_retries'),
+                config('event-sourcing.command_bus.instant_retry.exceptions'),
+            ),
+        );
+    }
+
+    private function registerQueryBus(): void
+    {
+        if (!config('event-sourcing.query_bus.enabled')) {
+            return;
+        }
+
+        $this->app->singleton(
+            QueryBus::class,
+            static fn ($app) => new SyncQueryBus(
+                new ServiceHandlerProvider($app->tagged('event_sourcing.subscriber')),
+                app('log'),
+            ),
+        );
     }
 
     private function registerConnection(): void
     {
-        $this->app->singleton('event_sourcing.dbal_connection', static function () {
+        $connectionCreationCallback = static function () {
             $url = config('event-sourcing.connection.url');
 
             if (is_string($url)) {
@@ -225,7 +285,15 @@ class EventSourcingServiceProvider extends ServiceProvider
                     static fn (mixed $value) => $value !== null,
                 ),
             );
-        });
+        };
+
+        $this->app->singleton('event_sourcing.dbal_connection', $connectionCreationCallback);
+
+        if (!config('event-sourcing.connection.provide_dedicated_connection')) {
+            return;
+        }
+
+        $this->app->singleton('event_sourcing.dbal_public_connection', $connectionCreationCallback);
     }
 
     private function registerStore(): void
@@ -235,6 +303,10 @@ class EventSourcingServiceProvider extends ServiceProvider
             $type = config('event-sourcing.store.type');
 
             if ($type === 'custom') {
+                if (config('event-sourcing.store.read_only')) {
+                    throw new InvalidArgumentException('Custom store type does not support read only');
+                }
+
                 /** @var string $service */
                 $service = config('event-sourcing.store.service');
 
@@ -242,29 +314,49 @@ class EventSourcingServiceProvider extends ServiceProvider
             }
 
             if ($type === 'in_memory') {
-                return new InMemoryStore();
+                if (config('event-sourcing.store.read_only')) {
+                    throw new InvalidArgumentException('In memory store type does not support read only');
+                }
+
+                return new InMemoryStore(
+                    [],
+                    app(EventRegistry::class),
+                    app('event_sourcing.clock'),
+                );
             }
 
             /** @var array<string, mixed> $options */
             $options = config('event-sourcing.store.options');
 
             if ($type === 'dbal_aggregate') {
-                return new DoctrineDbalStore(
+                $store = new DoctrineDbalStore(
                     app('event_sourcing.dbal_connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
                     $options,
                 );
+
+                if (config('event-sourcing.store.read_only')) {
+                    $store = new ReadOnlyStore($store, app('log'));
+                }
+
+                return $store;
             }
 
             if ($type === 'dbal_stream') {
-                return new StreamDoctrineDbalStore(
+                $store = new StreamDoctrineDbalStore(
                     app('event_sourcing.dbal_connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
                     app('event_sourcing.clock'),
                     $options,
                 );
+
+                if (config('event-sourcing.store.read_only')) {
+                    $store = new StreamReadOnlyStore($store, app('log'));
+                }
+
+                return $store;
             }
 
             throw new InvalidArgumentException(sprintf('Unknown store type "%s"', $type));
@@ -350,7 +442,7 @@ class EventSourcingServiceProvider extends ServiceProvider
             return new DefaultRepositoryManager(
                 app(AggregateRootRegistry::class),
                 app(Store::class),
-                app(EventBus::class),
+                config('event-sourcing.event_bus.enabled') ? app(EventBus::class) : null,
                 app(SnapshotStore::class),
                 app(MessageDecorator::class),
                 app('event_sourcing.clock'),
@@ -481,6 +573,10 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerEventBus(): void
     {
+        if (!config('event-sourcing.event_bus.enabled')) {
+            return;
+        }
+
         /** @var class-string $class */
         foreach (config('event-sourcing.listeners') as $class) {
             $this->app->tag($class, 'event_sourcing.listener');
@@ -518,6 +614,26 @@ class EventSourcingServiceProvider extends ServiceProvider
         });
     }
 
+    private function registerMessageLoader(): void
+    {
+        if (config('event-sourcing.subscription.gap_detection.enabled')) {
+            $this->app->singleton(MessageLoader::class, static function () {
+                return new GapResolverStoreMessageLoader(
+                    app(Store::class),
+                    app('event_sourcing.clock'),
+                    config('event-sourcing.subscription.gap_detection.retries_in_ms'),
+                    new DateInterval(config('event-sourcing.subscription.gap_detection.detection_window')),
+                );
+            });
+
+            return;
+        }
+
+        $this->app->singleton(MessageLoader::class, static function () {
+            return new StoreMessageLoader(app(Store::class));
+        });
+    }
+
     private function registerSubscription(): void
     {
         /** @var class-string $class */
@@ -525,14 +641,56 @@ class EventSourcingServiceProvider extends ServiceProvider
             $this->app->tag($class, 'event_sourcing.subscriber');
         }
 
-        $this->app->singleton(RetryStrategy::class, static function () {
-            return new ClockBasedRetryStrategy(
+        if (config('event-sourcing.subscription.retry_strategy') && config('event-sourcing.subscription.retry_strategies')) {
+            throw new InvalidArgumentException('Cannot use "retry_strategies" and "retry_strategy" at the same time. Use only "retry_strategies".');
+        }
+
+        if (config('event-sourcing.subscription.retry_strategy')) {
+            $strategies['default'] = new ClockBasedRetryStrategy(
                 app('event_sourcing.clock'),
                 config('event-sourcing.subscription.retry_strategy.base_delay'),
                 config('event-sourcing.subscription.retry_strategy.delay_factor'),
                 config('event-sourcing.subscription.retry_strategy.max_attempts'),
             );
-        });
+            $strategies['no_retry'] = new NoRetryStrategy();
+        }
+
+        $strategies = [];
+
+        foreach (config('event-sourcing.subscription.retry_strategies') as $name => $config) {
+            if ($config['type'] === 'custom') {
+                $strategies[$name] = app($config['service']);
+
+                continue;
+            }
+
+            if ($config['type'] === 'clock_based') {
+                $strategies[$name] = new ClockBasedRetryStrategy(
+                    app('event_sourcing.clock'),
+                    $config['options']['base_delay'] ?? 5,
+                    $config['options']['delay_factor'] ?? 2,
+                    $config['options']['max_attempts'] ?? 5,
+                );
+
+                continue;
+            }
+
+            if ($config['type'] === 'no_retry') {
+                $strategies[$name] = new NoRetryStrategy();
+
+                continue;
+            }
+
+            throw new InvalidArgumentException(sprintf('Unknown retry strategy type "%s"', $config['type']));
+        }
+
+        $this->app->singleton(
+            RetryStrategyRepository::class,
+            static fn () => new RetryStrategyRepository(
+                $strategies,
+                config('event-sourcing.subscription.default_retry_strategy'),
+            ),
+        );
 
         $this->app->singleton(SubscriberHelper::class, static function () {
             return new SubscriberHelper(
@@ -540,13 +698,38 @@ class EventSourcingServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(SubscriptionStore::class, static function () {
-            return new DoctrineSubscriptionStore(
-                app('event_sourcing.dbal_connection'),
-            );
-        });
+        if (config('event-sourcing.subscription.store.type') === 'custom') {
+            if (config('event-sourcing.subscription.store.service') === null) {
+                throw new InvalidArgumentException('Custom subscription store type requires a service');
+            }
 
+            $storeCallback = static fn () => app(config('event-sourcing.subscription.store.service'));
+        } elseif (config('event-sourcing.subscription.store.type') === 'in_memory') {
+            $storeCallback = static fn () => new InMemorySubscriptionStore([], app('event_sourcing.clock'));
+        } elseif (config('event-sourcing.subscription.store.type') === 'static_in_memory') {
+            $storeCallback = static fn () => StaticInMemorySubscriptionStoreFactory::create();
+        } elseif (config('event-sourcing.subscription.store.type') === 'dbal') {
+            $storeCallback = static fn () => new DoctrineSubscriptionStore(
+                app('event_sourcing.dbal_connection'),
+                app('event_sourcing.clock'),
+                config('event-sourcing.subscription.store.options.table_name'),
+            );
+        } else {
+            throw new InvalidArgumentException('Subscription store type is unknown.');
+        }
+
+        $this->app->singleton(SubscriptionStore::class, $storeCallback);
         $this->app->tag(SubscriptionStore::class, ['event_sourcing.doctrine_schema_configurator']);
+
+        $this->app->tag(
+            [
+                LookupResolver::class,
+                RecordedOnArgumentResolver::class,
+                EventArgumentResolver::class,
+                MessageArgumentResolver::class,
+            ],
+            'event_sourcing.argument_resolver',
+        );
 
         /** @var class-string $class */
         foreach (config('event-sourcing.argument_resolvers') as $class) {
@@ -566,7 +749,7 @@ class EventSourcingServiceProvider extends ServiceProvider
                 app(Store::class),
                 app(SubscriptionStore::class),
                 app(SubscriberAccessorRepository::class),
-                app(RetryStrategy::class),
+                app(RetryStrategyRepository::class),
                 app('log'),
             );
         });
@@ -621,54 +804,60 @@ class EventSourcingServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(SubscriptionSetupCommand::class, static function () {
-            return new SubscriptionSetupCommand(
+        $this->app->singleton(
+            SubscriptionSetupCommand::class,
+            static fn () => new SubscriptionSetupCommand(
                 app(SubscriptionEngine::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionBootCommand::class, static function () {
-            return new SubscriptionBootCommand(
+        $this->app->singleton(
+            SubscriptionBootCommand::class,
+            static fn () => new SubscriptionBootCommand(
                 app(SubscriptionEngine::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionRunCommand::class, static function () {
-            return new SubscriptionRunCommand(
+        $this->app->singleton(
+            SubscriptionRunCommand::class,
+            static fn () => new SubscriptionRunCommand(
                 app(SubscriptionEngine::class),
                 app(Store::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionTeardownCommand::class, static function () {
-            return new SubscriptionTeardownCommand(
+        $this->app->singleton(
+            SubscriptionTeardownCommand::class,
+            static fn () => new SubscriptionTeardownCommand(
                 app(SubscriptionEngine::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionRemoveCommand::class, static function () {
-            return new SubscriptionRemoveCommand(
+        $this->app->singleton(
+            SubscriptionRemoveCommand::class,
+            static fn () => new SubscriptionRemoveCommand(
                 app(SubscriptionEngine::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionStatusCommand::class, static function () {
-            return new SubscriptionStatusCommand(
+        $this->app->singleton(
+            SubscriptionStatusCommand::class,
+            static fn () => new SubscriptionStatusCommand(
                 app(SubscriptionEngine::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionPauseCommand::class, static function () {
-            return new SubscriptionPauseCommand(
+        $this->app->singleton(
+            SubscriptionPauseCommand::class,
+            static fn () => new SubscriptionPauseCommand(
                 app(SubscriptionEngine::class),
-            );
-        });
+            ),
+        );
 
-        $this->app->singleton(SubscriptionReactivateCommand::class, static function () {
-            return new SubscriptionReactivateCommand(
-                app(SubscriptionEngine::class),
-            );
-        });
+        $this->app->singleton(
+            SubscriptionReactivateCommand::class,
+            static fn () => new SubscriptionReactivateCommand(app(SubscriptionEngine::class)),
+        );
     }
 
     private function registerCryptography(): void
@@ -677,29 +866,95 @@ class EventSourcingServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->app->singleton(CipherKeyFactory::class, static function () {
-            return new OpensslCipherKeyFactory(config('event-sourcing.cryptography.algorithm'));
-        });
+        $this->app->singleton(
+            CipherKeyFactory::class,
+            static fn () => new OpensslCipherKeyFactory(config('event-sourcing.cryptography.algorithm')),
+        );
 
-        $this->app->singleton(CipherKeyStore::class, static function () {
-            return new DoctrineCipherKeyStore(
+        $this->app->singleton(
+            CipherKeyStore::class,
+            static fn () => new DoctrineCipherKeyStore(
                 app('event_sourcing.dbal_connection'),
                 'eventstore_cipher_keys',
-            );
-        });
+            ),
+        );
 
         $this->app->tag(CipherKeyStore::class, ['event_sourcing.doctrine_schema_configurator']);
 
-        $this->app->singleton(Cipher::class, static function () {
-            return new OpensslCipher();
-        });
+        $this->app->singleton(Cipher::class, static fn () => new OpensslCipher());
 
-        $this->app->singleton(PayloadCryptographer::class, static function () {
-            return new PersonalDataPayloadCryptographer(
+        $this->app->singleton(
+            PayloadCryptographer::class,
+            static fn () => new PersonalDataPayloadCryptographer(
                 app(CipherKeyStore::class),
                 app(CipherKeyFactory::class),
                 app(Cipher::class),
+                config('event-sourcing.cryptography.use_encrypted_field_name'),
+                config('event-sourcing.cryptography.fallback_to_field_name'),
+            ),
+        );
+    }
+
+    private function registerStoreMigration(): void
+    {
+        if (!config('event-sourcing.migrate_to_new_store.enabled')) {
+            return;
+        }
+
+        $id = 'event_sourcing.store.new_store';
+
+        foreach (config('event-sourcing.migrate_to_new_store.translators') as $class) {
+            $this->app->tag($class, 'event_sourcing.translator');
+        }
+
+        $storeType = config('event-sourcing.migrate_to_new_store.type');
+        if ($storeType === 'custom') {
+            if (config('event-sourcing.migrate_to_new_store.service') === null) {
+                throw new InvalidArgumentException('Custom store type requires a service');
+            }
+
+            $this->app->singleton($id, static fn () => app(config('event-sourcing.migrate_to_new_store.service')));
+        } elseif ($storeType === 'in_memory') {
+            $this->app->singleton(
+                $id,
+                static fn () => new InMemoryStore(
+                    [],
+                    app(EventRegistry::class),
+                    app('event_sourcing.clock'),
+                ),
             );
-        });
+        } elseif ($storeType === 'dbal_aggregate') {
+            $this->app->singleton(
+                $id,
+                static fn () => new DoctrineDbalStore(
+                    app('event_sourcing.dbal_connection'),
+                    app(EventSerializer::class),
+                    app(HeadersSerializer::class),
+                    config('event-sourcing.migrate_to_new_store.options'),
+                ),
+            );
+        } elseif ($storeType === 'dbal_stream') {
+            $this->app->singleton(
+                $id,
+                static fn () => new StreamDoctrineDbalStore(
+                    app('event_sourcing.dbal_connection'),
+                    app(EventSerializer::class),
+                    app(HeadersSerializer::class),
+                    app('event_sourcing.clock'),
+                    config('event-sourcing.migrate_to_new_store.options'),
+                ),
+            );
+        } else {
+            throw new InvalidArgumentException(sprintf('Unknown store type "%s"', $storeType));
+        }
+
+        $this->app->singleton(
+            StoreMigrateCommand::class,
+            static fn ($app) => new StoreMigrateCommand(
+                app(Store::class),
+                app($id),
+                $app->tagged('event_sourcing.translator'),
+            ),
+        );
     }
 }
