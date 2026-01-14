@@ -1402,16 +1402,16 @@
         },
         {
             "name": "laravel/framework",
-            "version": "v12.46.0",
+            "version": "v12.47.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laravel/framework.git",
-                "reference": "9dcff48d25a632c1fadb713024c952fec489c4ae"
+                "reference": "ab8114c2e78f32e64eb238fc4b495bea3f8b80ec"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laravel/framework/zipball/9dcff48d25a632c1fadb713024c952fec489c4ae",
-                "reference": "9dcff48d25a632c1fadb713024c952fec489c4ae",
+                "url": "https://api.github.com/repos/laravel/framework/zipball/ab8114c2e78f32e64eb238fc4b495bea3f8b80ec",
+                "reference": "ab8114c2e78f32e64eb238fc4b495bea3f8b80ec",
                 "shasum": ""
             },
             "require": {
@@ -1620,20 +1620,20 @@
                 "issues": "https://github.com/laravel/framework/issues",
                 "source": "https://github.com/laravel/framework"
             },
-            "time": "2026-01-07T23:26:53+00:00"
+            "time": "2026-01-13T15:29:06+00:00"
         },
         {
             "name": "laravel/prompts",
-            "version": "v0.3.8",
+            "version": "v0.3.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laravel/prompts.git",
-                "reference": "096748cdfb81988f60090bbb839ce3205ace0d35"
+                "reference": "5c41bf0555b7cfefaad4e66d3046675829581ac4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laravel/prompts/zipball/096748cdfb81988f60090bbb839ce3205ace0d35",
-                "reference": "096748cdfb81988f60090bbb839ce3205ace0d35",
+                "url": "https://api.github.com/repos/laravel/prompts/zipball/5c41bf0555b7cfefaad4e66d3046675829581ac4",
+                "reference": "5c41bf0555b7cfefaad4e66d3046675829581ac4",
                 "shasum": ""
             },
             "require": {
@@ -1677,22 +1677,22 @@
             "description": "Add beautiful and user-friendly forms to your command-line applications.",
             "support": {
                 "issues": "https://github.com/laravel/prompts/issues",
-                "source": "https://github.com/laravel/prompts/tree/v0.3.8"
+                "source": "https://github.com/laravel/prompts/tree/v0.3.9"
             },
-            "time": "2025-11-21T20:52:52+00:00"
+            "time": "2026-01-07T21:00:29+00:00"
         },
         {
             "name": "laravel/serializable-closure",
-            "version": "v2.0.7",
+            "version": "v2.0.8",
             "source": {
                 "type": "git",
                 "url": "https://github.com/laravel/serializable-closure.git",
-                "reference": "cb291e4c998ac50637c7eeb58189c14f5de5b9dd"
+                "reference": "7581a4407012f5f53365e11bafc520fd7f36bc9b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/laravel/serializable-closure/zipball/cb291e4c998ac50637c7eeb58189c14f5de5b9dd",
-                "reference": "cb291e4c998ac50637c7eeb58189c14f5de5b9dd",
+                "url": "https://api.github.com/repos/laravel/serializable-closure/zipball/7581a4407012f5f53365e11bafc520fd7f36bc9b",
+                "reference": "7581a4407012f5f53365e11bafc520fd7f36bc9b",
                 "shasum": ""
             },
             "require": {
@@ -1740,7 +1740,7 @@
                 "issues": "https://github.com/laravel/serializable-closure/issues",
                 "source": "https://github.com/laravel/serializable-closure"
             },
-            "time": "2025-11-21T20:52:36+00:00"
+            "time": "2026-01-08T16:22:46+00:00"
         },
         {
             "name": "league/commonmark",
@@ -7496,16 +7496,16 @@
         },
         {
             "name": "infection/infection",
-            "version": "0.32.2",
+            "version": "0.32.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/infection/infection.git",
-                "reference": "df90353784ab0505f07502770f59f8fabef24d8c"
+                "reference": "3654db483619b63b9bcb04c24caeb03677c6d057"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/infection/infection/zipball/df90353784ab0505f07502770f59f8fabef24d8c",
-                "reference": "df90353784ab0505f07502770f59f8fabef24d8c",
+                "url": "https://api.github.com/repos/infection/infection/zipball/3654db483619b63b9bcb04c24caeb03677c6d057",
+                "reference": "3654db483619b63b9bcb04c24caeb03677c6d057",
                 "shasum": ""
             },
             "require": {
@@ -7616,7 +7616,7 @@
             ],
             "support": {
                 "issues": "https://github.com/infection/infection/issues",
-                "source": "https://github.com/infection/infection/tree/0.32.2"
+                "source": "https://github.com/infection/infection/tree/0.32.3"
             },
             "funding": [
                 {
@@ -7628,7 +7628,7 @@
                     "type": "open_collective"
                 }
             ],
-            "time": "2026-01-07T13:28:58+00:00"
+            "time": "2026-01-13T14:23:38+00:00"
         },
         {
             "name": "infection/mutator",
@@ -8703,24 +8703,24 @@
         },
         {
             "name": "orchestra/testbench-core",
-            "version": "v10.8.2",
+            "version": "v10.9.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/orchestral/testbench-core.git",
-                "reference": "08c178232df58b1f083faa06aebd753b57db1d90"
+                "reference": "754d2b71601822d1f57f28119e4dea27ed1a5205"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/orchestral/testbench-core/zipball/08c178232df58b1f083faa06aebd753b57db1d90",
-                "reference": "08c178232df58b1f083faa06aebd753b57db1d90",
+                "url": "https://api.github.com/repos/orchestral/testbench-core/zipball/754d2b71601822d1f57f28119e4dea27ed1a5205",
+                "reference": "754d2b71601822d1f57f28119e4dea27ed1a5205",
                 "shasum": ""
             },
             "require": {
                 "composer-runtime-api": "^2.2",
-                "orchestra/sidekick": "~1.1.21|~1.2.18",
+                "orchestra/sidekick": "~1.1.23|~1.2.20",
                 "php": "^8.2",
                 "symfony/deprecation-contracts": "^2.5|^3.0",
-                "symfony/polyfill-php83": "^1.32"
+                "symfony/polyfill-php83": "^1.33"
             },
             "conflict": {
                 "brianium/paratest": "<7.3.0|>=8.0.0",
@@ -8735,7 +8735,7 @@
                 "laravel/pint": "^1.24",
                 "laravel/serializable-closure": "^1.3|^2.0.4",
                 "mockery/mockery": "^1.6.10",
-                "phpstan/phpstan": "^2.1.19",
+                "phpstan/phpstan": "^2.1.33",
                 "phpunit/phpunit": "^10.5.35|^11.5.3|^12.0.1",
                 "spatie/laravel-ray": "^1.42.0",
                 "symfony/process": "^7.2.0",
@@ -8792,7 +8792,7 @@
                 "issues": "https://github.com/orchestral/testbench/issues",
                 "source": "https://github.com/orchestral/testbench-core"
             },
-            "time": "2025-12-26T02:15:14+00:00"
+            "time": "2026-01-13T05:19:42+00:00"
         },
         {
             "name": "orchestra/workbench",
@@ -9664,12 +9664,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/Roave/SecurityAdvisories.git",
-                "reference": "ccfd723dc03e9864008d011603c412910180d7a6"
+                "reference": "28d428ca7643cd49a652e508758bbc7fc30c88c2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/Roave/SecurityAdvisories/zipball/ccfd723dc03e9864008d011603c412910180d7a6",
-                "reference": "ccfd723dc03e9864008d011603c412910180d7a6",
+                "url": "https://api.github.com/repos/Roave/SecurityAdvisories/zipball/28d428ca7643cd49a652e508758bbc7fc30c88c2",
+                "reference": "28d428ca7643cd49a652e508758bbc7fc30c88c2",
                 "shasum": ""
             },
             "conflict": {
@@ -10489,10 +10489,10 @@
                 "twbs/bootstrap": "<3.4.1|>=4,<4.3.1",
                 "twig/twig": "<3.11.2|>=3.12,<3.14.1|>=3.16,<3.19",
                 "typo3/cms": "<9.5.29|>=10,<10.4.35|>=11,<11.5.23|>=12,<12.2",
-                "typo3/cms-backend": "<4.1.14|>=4.2,<4.2.15|>=4.3,<4.3.7|>=4.4,<4.4.4|>=7,<=7.6.50|>=8,<=8.7.39|>=9,<9.5.55|>=10,<10.4.54|>=11,<11.5.48|>=12,<12.4.37|>=13,<13.4.18",
+                "typo3/cms-backend": "<4.1.14|>=4.2,<4.2.15|>=4.3,<4.3.7|>=4.4,<4.4.4|>=7,<=7.6.50|>=8,<=8.7.39|>=9,<9.5.55|>=10,<=10.4.54|>=11,<=11.5.48|>=12,<=12.4.40|>=13,<=13.4.22|>=14,<=14.0.1",
                 "typo3/cms-belog": ">=10,<=10.4.47|>=11,<=11.5.41|>=12,<=12.4.24|>=13,<=13.4.2",
                 "typo3/cms-beuser": ">=9,<9.5.55|>=10,<10.4.54|>=11,<11.5.48|>=12,<12.4.37|>=13,<13.4.18",
-                "typo3/cms-core": "<=8.7.56|>=9,<9.5.55|>=10,<10.4.54|>=11,<11.5.48|>=12,<12.4.37|>=13,<13.4.18",
+                "typo3/cms-core": "<=8.7.56|>=9,<9.5.55|>=10,<=10.4.54|>=11,<=11.5.48|>=12,<=12.4.40|>=13,<=13.4.22|>=14,<=14.0.1",
                 "typo3/cms-dashboard": ">=10,<10.4.54|>=11,<11.5.48|>=12,<12.4.37|>=13,<13.4.18",
                 "typo3/cms-extbase": "<6.2.24|>=7,<7.6.8|==8.1.1",
                 "typo3/cms-extensionmanager": ">=10,<=10.4.47|>=11,<=11.5.41|>=12,<=12.4.24|>=13,<=13.4.2",
@@ -10504,7 +10504,8 @@
                 "typo3/cms-install": "<4.1.14|>=4.2,<4.2.16|>=4.3,<4.3.9|>=4.4,<4.4.5|>=12.2,<12.4.8|==13.4.2",
                 "typo3/cms-lowlevel": ">=11,<=11.5.41",
                 "typo3/cms-recordlist": ">=11,<11.5.48",
-                "typo3/cms-recycler": ">=9,<9.5.55|>=10,<10.4.54|>=11,<11.5.48|>=12,<12.4.37|>=13,<13.4.18",
+                "typo3/cms-recycler": ">=9,<9.5.55|>=10,<=10.4.54|>=11,<=11.5.48|>=12,<=12.4.40|>=13,<=13.4.22|>=14,<=14.0.1",
+                "typo3/cms-redirects": ">=10,<=10.4.54|>=11,<=11.5.48|>=12,<=12.4.40|>=13,<=13.4.22|>=14,<=14.0.1",
                 "typo3/cms-rte-ckeditor": ">=9.5,<9.5.42|>=10,<10.4.39|>=11,<11.5.30",
                 "typo3/cms-scheduler": ">=11,<=11.5.41",
                 "typo3/cms-setup": ">=9,<=9.5.50|>=10,<=10.4.49|>=11,<=11.5.43|>=12,<=12.4.30|>=13,<=13.4.11",
@@ -10663,20 +10664,20 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-01-09T19:06:26+00:00"
+            "time": "2026-01-13T22:06:20+00:00"
         },
         {
             "name": "sanmai/di-container",
-            "version": "0.1.10",
+            "version": "0.1.11",
             "source": {
                 "type": "git",
                 "url": "https://github.com/sanmai/di-container.git",
-                "reference": "7a7f82ee7084de134b9f0d5e2e8926693cc977a2"
+                "reference": "4723e235e04589f88c0a114a4e438ff57a7cbb8a"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/sanmai/di-container/zipball/7a7f82ee7084de134b9f0d5e2e8926693cc977a2",
-                "reference": "7a7f82ee7084de134b9f0d5e2e8926693cc977a2",
+                "url": "https://api.github.com/repos/sanmai/di-container/zipball/4723e235e04589f88c0a114a4e438ff57a7cbb8a",
+                "reference": "4723e235e04589f88c0a114a4e438ff57a7cbb8a",
                 "shasum": ""
             },
             "require": {
@@ -10687,14 +10688,18 @@
             "require-dev": {
                 "ergebnis/composer-normalize": "^2.8",
                 "friendsofphp/php-cs-fixer": "^3.17",
-                "infection/infection": ">=0.29",
+                "infection/infection": ">=0.31",
                 "php-coveralls/php-coveralls": "^2.4.1",
+                "phpbench/phpbench": "^1.4",
                 "phpstan/extension-installer": "^1.4",
                 "phpunit/phpunit": "^11.5.25",
                 "sanmai/phpstan-rules": "^0.3.10"
             },
             "type": "library",
             "extra": {
+                "branch-alias": {
+                    "dev-main": "0.1.x-dev"
+                },
                 "preferred-install": "dist"
             },
             "autoload": {
@@ -10730,7 +10735,7 @@
             ],
             "support": {
                 "issues": "https://github.com/sanmai/di-container/issues",
-                "source": "https://github.com/sanmai/di-container/tree/0.1.10"
+                "source": "https://github.com/sanmai/di-container/tree/0.1.11"
             },
             "funding": [
                 {
@@ -10738,7 +10743,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-01-12T23:28:14+00:00"
+            "time": "2026-01-13T07:38:17+00:00"
         },
         {
             "name": "sanmai/duoclock",
@@ -12454,16 +12459,16 @@
         },
         {
             "name": "webmozart/assert",
-            "version": "2.1.1",
+            "version": "2.1.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webmozarts/assert.git",
-                "reference": "bdbabc199a7ba9965484e4725d66170e5711323b"
+                "reference": "ce6a2f100c404b2d32a1dd1270f9b59ad4f57649"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webmozarts/assert/zipball/bdbabc199a7ba9965484e4725d66170e5711323b",
-                "reference": "bdbabc199a7ba9965484e4725d66170e5711323b",
+                "url": "https://api.github.com/repos/webmozarts/assert/zipball/ce6a2f100c404b2d32a1dd1270f9b59ad4f57649",
+                "reference": "ce6a2f100c404b2d32a1dd1270f9b59ad4f57649",
                 "shasum": ""
             },
             "require": {
@@ -12510,9 +12515,9 @@
             ],
             "support": {
                 "issues": "https://github.com/webmozarts/assert/issues",
-                "source": "https://github.com/webmozarts/assert/tree/2.1.1"
+                "source": "https://github.com/webmozarts/assert/tree/2.1.2"
             },
-            "time": "2026-01-08T11:28:40+00:00"
+            "time": "2026-01-13T14:02:24+00:00"
         },
         {
             "name": "wnx/commonmark-markdown-renderer",
