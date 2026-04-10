@@ -1,0 +1,216 @@
+# https://help.github.com/en/categories/automating-your-workflow-with-github-actions
+
+name: "Integration tests"
+
+on:
+    pull_request:
+    push:
+        branches:
+            - "[0-9]+.[0-9]+.x"
+            - "renovate/*"
+
+jobs:
+    postgres:
+        name: "Postgres"
+
+        runs-on: ${{ matrix.operating-system }}
+
+        services:
+            postgres:
+                # Docker Hub image
+                image: "postgres:${{ matrix.postgres-version }}"
+                # Provide the password for postgres
+                env:
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: event_store
+                options: >-
+                  --health-cmd "pg_isready"
+                ports:
+                  - "5432:5432"
+
+        strategy:
+            matrix:
+                dependencies:
+                  - "locked"
+                php-version:
+                  - "8.5"
+                operating-system:
+                  - "ubuntu-latest"
+                postgres-version:
+                  - "14.20"
+                  - "15.15"
+                  - "16.11"
+                  - "17.7"
+                  - "18.1"
+
+        env:
+            DB_URL: 'pgsql://postgres:postgres@localhost:5432/event_store?charset=utf8'
+            DB_CONNECTION: 'pgsql'
+            DB_DATABASE: 'event_store'
+
+        steps:
+            - name: "Checkout"
+              uses: actions/checkout@v6
+
+            - name: "Install PHP"
+              uses: "shivammathur/setup-php@2.37.0"
+              with:
+                  coverage: "pcov"
+                  php-version: "${{ matrix.php-version }}"
+                  ini-values: memory_limit=-1
+                  extensions: pdo_pgsql
+
+            - uses: ramsey/composer-install@4.0.0
+              with:
+                dependency-versions: ${{ matrix.dependencies }}
+                composer-options: ${{ matrix.composer-options }}
+
+            - name: "Tests"
+              run: "vendor/bin/phpunit --testsuite=integration --no-coverage"
+
+    mariadb:
+      name: "mariadb"
+
+      runs-on: ${{ matrix.operating-system }}
+
+      services:
+        mariadb:
+          image: "mariadb:${{ matrix.mariadb-version }}"
+          env:
+            MYSQL_ALLOW_EMPTY_PASSWORD: yes
+            MYSQL_DATABASE: event_store
+
+          options: >-
+            --health-cmd "mariadb-admin ping --silent"
+          ports:
+            - "3306:3306"
+
+      strategy:
+        matrix:
+          dependencies:
+            - "locked"
+          php-version:
+            - "8.5"
+          operating-system:
+            - "ubuntu-latest"
+          mariadb-version:
+            - "10.6"
+            - "10.11"
+            - "11.4"
+            - "11.8"
+            - "12.1"
+
+      env:
+        DB_URL: 'mysql://root@127.0.0.1:3306/event_store?charset=utf8mb4'
+        DB_CONNECTION: 'mysql'
+        DB_DATABASE: 'event_store'
+
+      steps:
+        - name: "Checkout"
+          uses: actions/checkout@v6
+
+        - name: "Install PHP"
+          uses: "shivammathur/setup-php@2.37.0"
+          with:
+            coverage: "pcov"
+            php-version: "${{ matrix.php-version }}"
+            ini-values: memory_limit=-1
+            extensions: pdo_mysql
+
+        - uses: ramsey/composer-install@4.0.0
+          with:
+            dependency-versions: ${{ matrix.dependencies }}
+            composer-options: ${{ matrix.composer-options }}
+
+        - name: "Tests"
+          run: "vendor/bin/phpunit --testsuite=integration --no-coverage"
+
+    mysql:
+      name: "mysql"
+
+      runs-on: ${{ matrix.operating-system }}
+
+      services:
+        mysql:
+          image: "mysql:${{ matrix.mysql-version }}"
+
+          env:
+            MYSQL_ALLOW_EMPTY_PASSWORD: yes
+            MYSQL_DATABASE: "event_store"
+
+          options: >-
+            --health-cmd "mysqladmin ping --silent"
+          ports:
+            - "3306:3306"
+
+      strategy:
+        matrix:
+          dependencies:
+            - "locked"
+          php-version:
+            - "8.5"
+          operating-system:
+            - "ubuntu-latest"
+          mysql-version:
+            - "8.0"
+            - "8.4"
+            - "9.5"
+
+      env:
+        DB_URL: 'mysql://root@127.0.0.1:3306/event_store?charset=utf8mb4'
+        DB_CONNECTION: 'mysql'
+        DB_DATABASE: 'event_store'
+
+      steps:
+        - name: "Checkout"
+          uses: actions/checkout@v6
+
+        - name: "Install PHP"
+          uses: "shivammathur/setup-php@2.37.0"
+          with:
+            coverage: "pcov"
+            php-version: "${{ matrix.php-version }}"
+            ini-values: memory_limit=-1
+            extensions: pdo_mysql
+
+        - uses: ramsey/composer-install@4.0.0
+          with:
+            dependency-versions: ${{ matrix.dependencies }}
+            composer-options: ${{ matrix.composer-options }}
+
+        - name: "Tests"
+          run: "vendor/bin/phpunit --testsuite=integration --no-coverage"
+
+    sqlite:
+      name: "Sqlite"
+
+      runs-on: ${{ matrix.operating-system }}
+
+      strategy:
+        matrix:
+          dependencies:
+            - "locked"
+          php-version:
+            - "8.5"
+          operating-system:
+            - "ubuntu-latest"
+
+      steps:
+        - name: "Checkout"
+          uses: actions/checkout@v6
+
+        - name: "Install PHP"
+          uses: "shivammathur/setup-php@2.37.0"
+          with:
+            coverage: "pcov"
+            php-version: "${{ matrix.php-version }}"
+            ini-values: memory_limit=-1
+            extensions: pdo_sqlite
+
+        - uses: ramsey/composer-install@4.0.0
+          with:
+            dependency-versions: ${{ matrix.dependencies }}
+            composer-options: ${{ matrix.composer-options }}
+
+        - name: "Tests"
+          run: "vendor/bin/phpunit --testsuite=integration --no-coverage"

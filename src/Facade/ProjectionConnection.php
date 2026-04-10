@@ -10,6 +10,6 @@ class ProjectionConnection extends Facade
 {
     protected static function getFacadeAccessor(): string
     {
-        return 'event_sourcing.dbal_public_connection';
+        return 'event_sourcing.public_connection';
     }
 }

@@ -11,6 +11,9 @@
         <testsuite name="unit">
             <directory>tests/Unit</directory>
         </testsuite>
+        <testsuite name="integration">
+            <directory>tests/Integration</directory>
+        </testsuite>
     </testsuites>
     <coverage>
         <report>
@@ -22,6 +25,7 @@
         <ini name="error_reporting" value="E_ALL"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value="sqlite3:///:memory:"/>
     </php>
     <source>
         <include>

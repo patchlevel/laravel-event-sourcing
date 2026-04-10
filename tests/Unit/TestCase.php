@@ -16,10 +16,15 @@ abstract class TestCase extends Orchestra
     {
         parent::setUp();
 
-        $schemaDirector = $this->app->get(SchemaDirector::class);
-        $engine = $this->app->get(SubscriptionEngine::class);
+        if ($this->app->bound(SchemaDirector::class)) {
+            $schemaDirector = $this->app->get(SchemaDirector::class);
+            $schemaDirector->create();
+        } else {
+            $migration = include __DIR__ . '/../../database/migrations/create_eventsourcing_tables.php';
+            $migration->up();
+        }
 
-        $schemaDirector->create();
+        $engine = $this->app->get(SubscriptionEngine::class);
         $engine->setup(skipBooting: true);
     }
 
@@ -42,5 +47,13 @@ abstract class TestCase extends Orchestra
         config()->set($name, $value);
 
         (new EventSourcingServiceProvider($this->app))->register();
+    }
+
+    protected function configureDbal(): void
+    {
+        $this->setConfig('event-sourcing.connection.type', 'dbal');
+        $this->setConfig('event-sourcing.store.type', 'dbal_aggregate');
+        $this->setConfig('event-sourcing.subscription.store.type', 'dbal');
+        $this->setConfig('event-sourcing.cryptography.store', 'dbal');
     }
 }
