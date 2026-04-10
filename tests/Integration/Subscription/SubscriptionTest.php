@@ -1,0 +1,1507 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription;
+
+use DateTimeImmutable;
+use Illuminate\Database\Connection;
+use Patchlevel\EventSourcing\Attribute\Setup;
+use Patchlevel\EventSourcing\Attribute\Subscribe;
+use Patchlevel\EventSourcing\Attribute\Subscriber;
+use Patchlevel\EventSourcing\Attribute\Teardown;
+use Patchlevel\EventSourcing\Clock\FrozenClock;
+use Patchlevel\EventSourcing\Message\Message;
+use Patchlevel\EventSourcing\Metadata\AggregateRoot\AggregateRootRegistry;
+use Patchlevel\EventSourcing\Metadata\Event\AttributeEventMetadataFactory;
+use Patchlevel\EventSourcing\Metadata\Event\AttributeEventRegistryFactory;
+use Patchlevel\EventSourcing\Repository\DefaultRepositoryManager;
+use Patchlevel\EventSourcing\Serializer\DefaultEventSerializer;
+use Patchlevel\EventSourcing\Subscription\Cleanup\DefaultCleaner;
+use Patchlevel\EventSourcing\Subscription\Engine\CatchUpSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\Engine\DefaultSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\Engine\EventFilteredStoreMessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\GapResolverStoreMessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\MessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\StoreMessageLoader;
+use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngineCriteria;
+use Patchlevel\EventSourcing\Subscription\Engine\ThrowOnErrorSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\RetryStrategy\ClockBasedRetryStrategy;
+use Patchlevel\EventSourcing\Subscription\RunMode;
+use Patchlevel\EventSourcing\Subscription\Status;
+use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\LookupResolver;
+use Patchlevel\EventSourcing\Subscription\Subscriber\MetadataSubscriberAccessorRepository;
+use Patchlevel\EventSourcing\Subscription\Subscription;
+use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropTableTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\IlluminateCleanupTaskHandler;
+use Patchlevel\LaravelEventSourcing\Subscription\Store\IlluminateSubscriptionStore;
+use Patchlevel\LaravelEventSourcing\Tests\DatabaseManager;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\ErrorProducerSubscriber;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\ErrorProducerWithSelfRecoverySubscriber;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\LookupSubscriber;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\MigrateAggregateToStreamStoreSubscriber;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\ProfileNewProjection;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\ProfileProcessor;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\ProfileProjection;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Subscriber\ProfileProjectionWithCleanup;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use RuntimeException;
+
+use function gc_collect_cycles;
+use function iterator_to_array;
+use function sprintf;
+
+#[CoversNothing]
+final class SubscriptionTest extends IntegrationTestCase
+{
+    private Connection $projectionConnection;
+
+    public function setUp(): void
+    {
+        parent::setUp();
+
+        $this->projectionConnection = DatabaseManager::createConnection(forceNewConnection: true);
+    }
+
+    public function tearDown(): void
+    {
+        parent::tearDown();
+
+        gc_collect_cycles();
+    }
+
+    public function testHappyPath(): void
+    {
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $repository = $manager->get(Profile::class);
+
+        $subscriberRepository = new MetadataSubscriberAccessorRepository([new ProfileProjection($this->projectionConnection)]);
+
+        $engine = new DefaultSubscriptionEngine(
+            new EventFilteredStoreMessageLoader($store, new AttributeEventMetadataFactory(), $subscriberRepository),
+            $subscriptionStore,
+            $subscriberRepository,
+        );
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $result = $engine->setup();
+
+        self::assertEquals([], $result->errors);
+
+        $result = $engine->boot();
+
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $profileId = ProfileId::generate();
+        $profile = Profile::create($profileId, 'John');
+        $repository->save($profile);
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $result = $this->projectionConnection->selectOne(
+            'SELECT * FROM projection_profile_1 WHERE id = ?',
+            [$profileId->toString()],
+        );
+
+        self::assertIsObject($result);
+        self::assertObjectHasProperty('id', $result);
+        self::assertSame($profileId->toString(), $result->id);
+        self::assertSame('John', $result->name);
+
+        $result = $engine->remove();
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::New,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+
+        self::assertFalse(
+            $this->projectionConnection->getSchemaBuilder()->hasTable('projection_profile_1'),
+        );
+    }
+
+    public function testGapResolver(): void
+    {
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $repository = $manager->get(Profile::class);
+
+        $subscriberRepository = new MetadataSubscriberAccessorRepository([new ProfileProjection($this->projectionConnection)]);
+
+        $engine = new DefaultSubscriptionEngine(
+            new GapResolverStoreMessageLoader($store),
+            $subscriptionStore,
+            $subscriberRepository,
+        );
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $result = $engine->setup();
+
+        self::assertEquals([], $result->errors);
+
+        $result = $engine->boot();
+
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $profileId = ProfileId::generate();
+        $profile = Profile::create($profileId, 'John');
+        $repository->save($profile);
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $result = $this->projectionConnection->selectOne(
+            'SELECT * FROM projection_profile_1 WHERE id = ?',
+            [$profileId->toString()],
+        );
+
+        self::assertIsObject($result);
+        self::assertObjectHasProperty('id', $result);
+        self::assertSame($profileId->toString(), $result->id);
+        self::assertSame('John', $result->name);
+
+        $result = $engine->remove();
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::New,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        self::assertFalse(
+            $this->projectionConnection->getSchemaBuilder()->hasTable('projection_profile_1'),
+        );
+    }
+
+    public function testErrorHandling(): void
+    {
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $subscriber = new ErrorProducerSubscriber();
+
+        $engine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([$subscriber]),
+            new ClockBasedRetryStrategy(
+                $clock,
+                ClockBasedRetryStrategy::DEFAULT_BASE_DELAY,
+                ClockBasedRetryStrategy::DEFAULT_DELAY_FACTOR,
+                2,
+            ),
+        );
+
+        $result = $engine->setup();
+        self::assertEquals([], $result->errors);
+
+        $result = $engine->boot();
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Active, $subscription->status());
+        self::assertEquals(null, $subscription->subscriptionError());
+        self::assertEquals(0, $subscription->retryAttempt());
+
+        $repository = $manager->get(Profile::class);
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $subscriber->subscribeError = true;
+
+        // first run, error
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals('subscribe error', $error->message);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Error, $subscription->status());
+        self::assertEquals('subscribe error', $subscription->subscriptionError()?->errorMessage);
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(0, $subscription->retryAttempt());
+
+        // second run, time has not passed yet, no retry, no error
+
+        $result = $engine->run();
+
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Error, $subscription->status());
+        self::assertEquals('subscribe error', $subscription->subscriptionError()?->errorMessage);
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(0, $subscription->retryAttempt());
+
+        // third run, time has passed, 1. retry, error again
+
+        $clock->sleep(5);
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals('subscribe error', $error->message);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Error, $subscription->status());
+        self::assertEquals('subscribe error', $subscription->subscriptionError()?->errorMessage);
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(1, $subscription->retryAttempt());
+
+        // fourth run, time has passed, 2. retry, max retries reached, failed
+
+        $clock->sleep(10);
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals('subscribe error', $error->message);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Failed, $subscription->status());
+        self::assertEquals('subscribe error', $subscription->subscriptionError()?->errorMessage);
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(2, $subscription->retryAttempt());
+
+        // fifth run, time has passed, skip failed subscription
+
+        $clock->sleep(20);
+        $result = $engine->run();
+
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Failed, $subscription->status());
+        self::assertEquals('subscribe error', $subscription->subscriptionError()?->errorMessage);
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(2, $subscription->retryAttempt());
+
+        // reactivated subscription
+
+        $engine->reactivate(new SubscriptionEngineCriteria(
+            ids: ['error_producer'],
+        ));
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Active, $subscription->status());
+        self::assertEquals(null, $subscription->subscriptionError());
+        self::assertEquals(0, $subscription->retryAttempt());
+
+        // sixth run, error again
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals('subscribe error', $error->message);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Error, $subscription->status());
+        self::assertEquals('subscribe error', $subscription->subscriptionError()?->errorMessage);
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(0, $subscription->retryAttempt());
+
+        // seventh run, time has passed, error fixed, 1. retry, no error
+
+        $clock->sleep(5);
+        $subscriber->subscribeError = false;
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Active, $subscription->status());
+        self::assertEquals(null, $subscription->subscriptionError());
+        self::assertEquals(0, $subscription->retryAttempt());
+    }
+
+    public function testSelfRecovery(): void
+    {
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $subscriber = new ErrorProducerWithSelfRecoverySubscriber();
+
+        $engine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([$subscriber]),
+            new ClockBasedRetryStrategy(
+                $clock,
+                ClockBasedRetryStrategy::DEFAULT_BASE_DELAY,
+                ClockBasedRetryStrategy::DEFAULT_DELAY_FACTOR,
+                0,
+            ),
+        );
+
+        $result = $engine->setup(skipBooting: true);
+        self::assertEquals([], $result->errors);
+
+        // add data
+
+        $repository = $manager->get(Profile::class);
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $subscriber->subscribeError = true;
+
+        // first run, failed -> self recovery
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals('subscribe error', $error->message);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Active, $subscription->status());
+        self::assertEquals(0, $subscription->retryAttempt());
+        self::assertEquals(1, $subscription->position());
+
+        // change data
+
+        $profile->changeName('Jane');
+        $repository->save($profile);
+
+        // second run, failed -> self recovery failed
+
+        $subscriber->onFailedError = true;
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals('subscribe error', $error->message);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Failed, $subscription->status());
+        self::assertEquals(0, $subscription->retryAttempt());
+        self::assertEquals(1, $subscription->position());
+    }
+
+    public function testLargeErrorMessage(): void
+    {
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $subscriber = new #[Subscriber('error_producer', RunMode::FromBeginning)]
+        class {
+            public bool $subscribeError = false;
+
+            #[Setup]
+            public function setup(): void
+            {
+            }
+
+            #[Teardown]
+            public function teardown(): void
+            {
+            }
+
+            #[Subscribe('*')]
+            public function subscribe(): void
+            {
+                if ($this->subscribeError) {
+                    throw new RuntimeException('subscribe error: as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration.');
+                }
+            }
+        };
+
+        $engine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([$subscriber]),
+            new ClockBasedRetryStrategy(
+                $clock,
+                ClockBasedRetryStrategy::DEFAULT_BASE_DELAY,
+                ClockBasedRetryStrategy::DEFAULT_DELAY_FACTOR,
+                2,
+            ),
+        );
+
+        $result = $engine->setup();
+        self::assertEquals([], $result->errors);
+
+        $result = $engine->boot();
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Active, $subscription->status());
+        self::assertEquals(null, $subscription->subscriptionError());
+        self::assertEquals(0, $subscription->retryAttempt());
+
+        $repository = $manager->get(Profile::class);
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $subscriber->subscribeError = true;
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertCount(1, $result->errors);
+
+        $error = $result->errors[0];
+
+        self::assertEquals('error_producer', $error->subscriptionId);
+        self::assertEquals(
+            'subscribe error: as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration.',
+            $error->message,
+        );
+
+        $subscription = self::findSubscription($engine->subscriptions(), 'error_producer');
+
+        self::assertEquals(Status::Error, $subscription->status());
+        self::assertEquals(
+            'subscribe error: as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration, as an extra long message exceeding 255 varchar configuration.',
+            $subscription->subscriptionError()?->errorMessage,
+        );
+        self::assertEquals(Status::Active, $subscription->subscriptionError()?->previousStatus);
+        self::assertEquals(0, $subscription->retryAttempt());
+    }
+
+    public function testProcessor(): void
+    {
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+        $subscriptionStore = new IlluminateSubscriptionStore($this->connection, $clock);
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+            null,
+            null,
+        );
+
+        $subscriberAccessorRepository = new MetadataSubscriberAccessorRepository([new ProfileProcessor($manager)]);
+
+        $repository = $manager->get(Profile::class);
+
+        $engine = new CatchUpSubscriptionEngine(
+            new DefaultSubscriptionEngine(
+                $store,
+                $subscriptionStore,
+                $subscriberAccessorRepository,
+            ),
+        );
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile',
+                    'processor',
+                    RunMode::FromNow,
+                    Status::Active,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $engine->run();
+
+        $subscriptions = $engine->subscriptions();
+
+        self::assertCount(1, $subscriptions);
+        self::assertArrayHasKey(0, $subscriptions);
+
+        $subscription = $subscriptions[0];
+
+        self::assertEquals('profile', $subscription->id());
+
+        self::assertEquals(Status::Active, $subscription->status());
+
+        /** @var list<Message> $messages */
+        $messages = iterator_to_array($store->load());
+
+        self::assertCount(3, $messages);
+        self::assertArrayHasKey(2, $messages);
+    }
+
+    public function testBlueGreenDeployment(): void
+    {
+        // Test Setup
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+        $subscriptionStore = new IlluminateSubscriptionStore($this->connection, $clock);
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $repository = $manager->get(Profile::class);
+
+        $firstEngine = new ThrowOnErrorSubscriptionEngine(new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new ProfileProjection($this->projectionConnection)]),
+        ));
+
+        // Deploy first version
+
+        $firstEngine->setup();
+        $firstEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // Run first version
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $firstEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // deploy second version
+
+        $secondEngine = new ThrowOnErrorSubscriptionEngine(new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new ProfileNewProjection($this->projectionConnection)]),
+        ));
+
+        $secondEngine->setup();
+        $secondEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // switch traffic
+
+        $secondEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Detached,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $secondEngine->subscriptions(),
+        );
+
+        // shutdown first version
+
+        $firstEngine->teardown();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $secondEngine->subscriptions(),
+        );
+    }
+
+    public function testBlueGreenDeploymentRollback(): void
+    {
+        // Test Setup
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $repository = $manager->get(Profile::class);
+
+
+
+        $firstEngine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new ProfileProjection($this->projectionConnection)]),
+        );
+
+        // Deploy first version
+
+        $firstEngine->setup();
+        $firstEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // Run first version
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $firstEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // deploy second version
+
+        $secondEngine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new ProfileNewProjection($this->projectionConnection)]),
+        );
+
+        $secondEngine->setup();
+        $secondEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // switch traffic
+
+        $secondEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Detached,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $secondEngine->subscriptions(),
+        );
+
+        // rollback
+
+        $firstEngine->setup();
+        $firstEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Detached,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // reactivating detached subscription
+
+        $firstEngine->reactivate(new SubscriptionEngineCriteria(
+            ids: ['profile_1'],
+        ));
+
+        // switch traffic
+
+        $firstEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Detached,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // shutdown second version
+
+        $secondEngine->teardown();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+    }
+
+    public function testCleanup(): void
+    {
+        // Test Setup
+
+        $cleaner = new DefaultCleaner([
+            new IlluminateCleanupTaskHandler(
+                $this->projectionConnection,
+            ),
+        ]);
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+        $manager = new DefaultRepositoryManager(
+            new AggregateRootRegistry(['profile' => Profile::class]),
+            $store,
+        );
+
+        $repository = $manager->get(Profile::class);
+
+        $firstEngine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new ProfileProjectionWithCleanup($this->projectionConnection)]),
+            cleaner: $cleaner,
+        );
+
+        // Deploy first version
+
+        $firstEngine->setup();
+        $firstEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                    cleanupTasks: [new DropTableTask('projection_profile_1')],
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // Run first version
+
+        $profile = Profile::create(ProfileId::generate(), 'John');
+        $repository->save($profile);
+
+        $firstEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                    cleanupTasks: [new DropTableTask('projection_profile_1')],
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // deploy second version
+
+        $secondEngine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new ProfileNewProjection($this->projectionConnection)]),
+            cleaner: $cleaner,
+        );
+
+        $secondEngine->setup();
+        $secondEngine->boot();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                    cleanupTasks: [new DropTableTask('projection_profile_1')],
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $firstEngine->subscriptions(),
+        );
+
+        // switch traffic
+
+        $secondEngine->run();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_1',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Detached,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                    cleanupTasks: [new DropTableTask('projection_profile_1')],
+                ),
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $secondEngine->subscriptions(),
+        );
+
+        // shutdown second version (with cleanup)
+
+        $secondEngine->teardown();
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'profile_2',
+                    'projector',
+                    RunMode::FromBeginning,
+                    Status::Active,
+                    1,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $secondEngine->subscriptions(),
+        );
+
+        self::assertFalse(
+            $this->projectionConnection->getSchemaBuilder()->hasTable('projection_profile_1'),
+        );
+    }
+
+    public function testPipeline(): void
+    {
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $targetStore = new StreamIlluminateStore(
+            $this->projectionConnection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            config: ['table_name' => 'new_eventstore'],
+        );
+
+        $subscriptionStore = new IlluminateSubscriptionStore($this->connection, $clock);
+
+        $manager = new DefaultRepositoryManager(new AggregateRootRegistry(['profile' => Profile::class]), $store);
+        $repository = $manager->get(Profile::class);
+
+        $engine = new DefaultSubscriptionEngine(
+            $store,
+            $subscriptionStore,
+            new MetadataSubscriberAccessorRepository([new MigrateAggregateToStreamStoreSubscriber($targetStore, $this->projectionConnection)]),
+        );
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'migrate',
+                    'default',
+                    RunMode::Once,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        $result = $engine->setup();
+
+        self::assertEquals([], $result->errors);
+
+        self::assertTrue($this->projectionConnection->getSchemaBuilder()->hasTable('new_eventstore'));
+
+        $profileId = ProfileId::generate();
+        $profile = Profile::create($profileId, 'John');
+
+        for ($i = 1; $i < 1_000; $i++) {
+            $profile->changeName(sprintf('John %d', $i));
+        }
+
+        $repository->save($profile);
+
+        $result = $engine->boot();
+
+        self::assertEquals(1_000, $result->processedMessages);
+
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'migrate',
+                    'default',
+                    RunMode::Once,
+                    Status::Finished,
+                    1_000,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        // target store check
+
+        $result = $engine->remove();
+        self::assertEquals([], $result->errors);
+
+        self::assertEquals(
+            [
+                new Subscription(
+                    'migrate',
+                    'default',
+                    RunMode::Once,
+                    Status::New,
+                    lastSavedAt: new DateTimeImmutable('2021-01-01T00:00:00'),
+                ),
+            ],
+            $engine->subscriptions(),
+        );
+
+        self::assertFalse(
+            $this->projectionConnection->getSchemaBuilder()->hasTable('new_eventstore'),
+        );
+    }
+
+    public function testLookup(): void
+    {
+        $eventRegistry = (new AttributeEventRegistryFactory())->create([__DIR__ . '/Events']);
+        $serializer = new DefaultEventSerializer($eventRegistry);
+
+        $store = new StreamIlluminateStore($this->connection, $serializer);
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $subscriptionStore = new IlluminateSubscriptionStore($this->connection, $clock);
+        $manager = new DefaultRepositoryManager(new AggregateRootRegistry(['profile' => Profile::class]), $store);
+
+        $repository = $manager->get(Profile::class);
+
+        $subscriberRepository = new MetadataSubscriberAccessorRepository(
+            [
+                new LookupSubscriber($this->projectionConnection),
+            ],
+            argumentResolvers: [
+                new LookupResolver(
+                    $store,
+                    $eventRegistry,
+                ),
+            ],
+        );
+
+        $engine = new DefaultSubscriptionEngine(
+            new StoreMessageLoader($store),
+            $subscriptionStore,
+            $subscriberRepository,
+        );
+
+        $result = $engine->setup();
+
+        self::assertEquals([], $result->errors);
+
+        $result = $engine->boot();
+
+        self::assertEquals(0, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $profileId = ProfileId::generate();
+        $profile = Profile::create($profileId, 'John');
+        $repository->save($profile);
+
+        $result = $engine->run();
+
+        self::assertEquals(1, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $result = $this->projectionConnection->selectOne(
+            'SELECT * FROM projection_lookup WHERE id = ?',
+            [$profileId->toString()],
+        );
+
+        self::assertNull($result);
+
+        $profile->changeName('Hans');
+        $profile->promoteToAdmin();
+        $repository->save($profile);
+
+        $result = $engine->run();
+
+        self::assertEquals(2, $result->processedMessages);
+        self::assertEquals([], $result->errors);
+
+        $result = $this->projectionConnection->selectOne(
+            'SELECT * FROM projection_lookup WHERE id = ?',
+            [$profileId->toString()],
+        );
+
+        self::assertIsObject($result);
+        self::assertObjectHasProperty('id', $result);
+        self::assertSame($profileId->toString(), $result->id);
+        self::assertSame('Hans', $result->name);
+    }
+
+    public function testRefreshSubscriptions(): void
+    {
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+        );
+
+        $clock = new FrozenClock(new DateTimeImmutable('2021-01-01T00:00:00'));
+
+        $subscriptionStore = new IlluminateSubscriptionStore(
+            $this->connection,
+            $clock,
+        );
+
+
+
+        $subscriber = new #[Subscriber('test', RunMode::FromBeginning, group: 'default')]
+        class {
+        };
+
+        $subscriberRepository = new MetadataSubscriberAccessorRepository([$subscriber]);
+
+        $engine = new DefaultSubscriptionEngine(
+            $this->createMock(MessageLoader::class),
+            $subscriptionStore,
+            $subscriberRepository,
+        );
+
+        $engine->setup();
+
+        $subscriptions = $engine->subscriptions();
+        self::assertCount(1, $subscriptions);
+        self::assertEquals('test', $subscriptions[0]->id());
+        self::assertEquals('default', $subscriptions[0]->group());
+        self::assertEquals(RunMode::FromBeginning, $subscriptions[0]->runMode());
+
+        // change subscriber metadata
+        $newSubscriber = new #[Subscriber('test', RunMode::FromNow, group: 'new-group')]
+        class {
+        };
+
+        $newSubscriberRepository = new MetadataSubscriberAccessorRepository([$newSubscriber]);
+
+        $engine = new DefaultSubscriptionEngine(
+            $this->createMock(MessageLoader::class),
+            $subscriptionStore,
+            $newSubscriberRepository,
+        );
+
+        $engine->refresh();
+
+        $subscriptions = $engine->subscriptions();
+        self::assertCount(1, $subscriptions);
+        self::assertEquals('test', $subscriptions[0]->id());
+        self::assertEquals('new-group', $subscriptions[0]->group());
+        self::assertEquals(RunMode::FromNow, $subscriptions[0]->runMode());
+    }
+
+    /** @param list<Subscription> $subscriptions */
+    private static function findSubscription(array $subscriptions, string $id): Subscription
+    {
+        foreach ($subscriptions as $subscription) {
+            if ($subscription->id() === $id) {
+                return $subscription;
+            }
+        }
+
+        self::fail('subscription not found');
+    }
+}

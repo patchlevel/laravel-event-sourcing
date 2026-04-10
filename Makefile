@@ -22,7 +22,8 @@ phpstan-baseline: vendor                                                        
 
 .PHONY: phpunit
 phpunit: vendor                                                                 ## run phpunit tests
-	XDEBUG_MODE=coverage vendor/bin/phpunit
+	XDEBUG_MODE=coverage vendor/bin/phpunit --testsuite=unit
+	XDEBUG_MODE=off vendor/bin/phpunit --testsuite=integration --no-coverage
 
 .PHONY: infection
 infection: vendor                                                               ## run infection
