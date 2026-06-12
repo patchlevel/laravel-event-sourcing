@@ -9,7 +9,6 @@ The first thing to do is to install packet if it has not already been done.
 ```bash
 composer require patchlevel/laravel-event-sourcing=1.0.0-beta3
 ```
-
 :::note
 how to install [composer](https://getcomposer.org/doc/00-intro.md)
 :::
@@ -46,9 +45,8 @@ $app->withMiddleware(static function (Middleware $middleware): void {
     $middleware->append(EventSourcingMiddleware::class);
 });
 ```
-
 :::success
-You have successfully installed the package! 
+You have successfully installed the package!
 You can now start using the event sourcing library in your laravel project.
 Start with the [quickstart](getting-started.md) to get a feeling for the package.
 :::

@@ -1,8 +1,8 @@
 # Configuration
 
 :::note
-You can find out more about event sourcing in the library 
-[documentation](/docs/event-sourcing/latest). 
+You can find out more about event sourcing in the library
+[documentation](/docs/event-sourcing/latest).
 This documentation is limited to the laravel integration and configuration.
 :::
 
@@ -30,7 +30,6 @@ return [
     ],
 ];
 ```
-
 :::note
 The library will automatically register all classes marked with the `#[Aggregate]` attribute in the specified paths.
 :::
@@ -59,7 +58,6 @@ return [
     ],
 ];
 ```
-
 :::tip
 If you want to learn more about events, read the [library documentation](/docs/event-sourcing/latest/events).
 :::
@@ -85,7 +83,6 @@ return [
     ],
 ];
 ```
-
 :::tip
 If you want to learn more about custom headers, read the [library documentation](/docs/event-sourcing/latest/message#custom-headers).
 :::
@@ -101,9 +98,8 @@ return [
     ],
 ];
 ```
-
 :::note
-You can find out more about how to create a connection 
+You can find out more about how to create a connection
 [here](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/configuration.html)
 :::
 
@@ -120,7 +116,6 @@ return [
     ],
 ];
 ```
-
 :::warning
 If you use doctrine migrations, you should exclude you projection tables from the schema generation.
 The schema is managed by the subscription engine and should not be managed by doctrine.
@@ -133,7 +128,7 @@ You can autowire the connection in your services like this:
 use Doctrine\DBAL\Connection;
 use Patchlevel\LaravelEventSourcing\Attribute\ProjectionConnection;
 
-final class MyService 
+final class MyService
 {
     public function __construct(
         #[ProjectionConnection]
@@ -193,7 +188,6 @@ return [
     ],
 ];
 ```
-
 :::tip
 This is useful if you have maintenance work on the event store and you want to avoid side effects.
 :::
@@ -224,7 +218,6 @@ return [
     ],
 ];
 ```
-
 :::danger
 Make sure that you use different table names for the old and new store.
 Otherwise your event store will be destroyed.
@@ -238,7 +231,7 @@ and missing events during the migration.
 ## Subscription
 
 :::tip
-You can find out more about subscriptions in the library 
+You can find out more about subscriptions in the library
 [documentation](/docs/event-sourcing/latest/subscription).
 :::
 
@@ -265,7 +258,6 @@ return [
     ],
 ];
 ```
-
 :::tip
 You can use the `static_in_memory` store for testing, if you are using transactions to rollback changes.
 :::
@@ -298,7 +290,6 @@ return [
     'subscription' => ['throw_on_error' => true],
 ];
 ```
-
 :::warning
 This option should not be used in production. The normal behavior is to log the error and continue.
 :::
@@ -336,7 +327,6 @@ return [
     ],
 ];
 ```
-
 :::note
 This works only before each http requests and not if you use the console commands.
 :::
@@ -353,7 +343,6 @@ return [
     ],
 ];
 ```
-
 :::note
 This works only before each http requests and not if you use the console commands.
 :::
@@ -378,7 +367,6 @@ return [
     ],
 ];
 ```
-
 :::note
 For more context you can read more about this in [this issue](https://github.com/patchlevel/event-sourcing/issues/727#issuecomment-2757297536).
 :::
@@ -453,7 +441,6 @@ return [
     ],
 ];
 ```
-
 :::note
 You can find out more about instant retry [here](/docs/event-sourcing/latest/command-bus#instant-retry).
 :::
@@ -487,7 +474,6 @@ return [
     ],
 ];
 ```
-
 :::note
 Default is the patchlevel [event bus](/docs/event-sourcing/latest/event-bus).
 :::
@@ -510,7 +496,6 @@ final class Profile extends BasicAggregateRoot
     // ...
 }
 ```
-
 :::note
 You can find out more about snapshots [here](/docs/event-sourcing/latest/snapshots).
 :::
@@ -529,7 +514,6 @@ return [
     ],
 ];
 ```
-
 :::tip
 You should activate `use_encrypted_field_name` to mark the fields that are encrypted.
 That allows you later to migrate not encrypted fields to encrypted fields.
@@ -546,7 +530,6 @@ return [
     ],
 ];
 ```
-
 :::note
 You can find out more about sensitive data [here](/docs/event-sourcing/latest/personal-data).
 :::
@@ -564,7 +547,6 @@ return [
     'clock' => ['freeze' => '2020-01-01 22:00:00'],
 ];
 ```
-
 :::note
 If freeze is not set, then the system clock is used.
 :::

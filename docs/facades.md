@@ -63,7 +63,6 @@ $messages = Store::load(
     ),
 );
 ```
-
 :::note
 This documentation is limited to the package integration.
 You should also read the [library documentation](/docs/event-sourcing/latest).

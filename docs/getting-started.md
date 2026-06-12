@@ -62,7 +62,6 @@ final class GuestIsCheckedOut
     }
 }
 ```
-
 :::note
 You can find out more about events in the [library](/docs/event-sourcing/latest/events).
 :::
@@ -164,7 +163,6 @@ final class Hotel extends AggregateRoot
     }
 }
 ```
-
 :::note
 You can find out more about aggregates in the [library](/docs/event-sourcing/latest/aggregate).
 :::
@@ -262,7 +260,6 @@ return [
     ],
 ];
 ```
-
 :::note
 You can find out more about projections in the [library](/docs/event-sourcing/latest/subscription).
 :::
@@ -307,7 +304,6 @@ return [
     ],
 ];
 ```
-
 :::note
 You can find out more about processor in the [library](/docs/event-sourcing/latest/subscription)
 :::
@@ -388,7 +384,6 @@ Route::post('/hotel/create', [HotelController::class, 'create']);
 Route::post('/hotel/{id}/check-in', [HotelController::class, 'checkIn']);
 Route::post('/hotel/{id}/check-out', [HotelController::class, 'checkOut']);
 ```
-
 :::warning
 Don't forget to define the path to the [api routes](https://laravel.com/docs/11.x/routing#api-routes) in the `bootstrap/app.php` configuration file.
 :::
@@ -398,7 +393,7 @@ Don't forget to define the path to the [api routes](https://laravel.com/docs/11.
 :::success
 We have successfully implemented and used event sourcing.
 
-Feel free to browse further in the documentation for more detailed information. 
+Feel free to browse further in the documentation for more detailed information.
 If there are still open questions, create a ticket on Github and we will try to help you.
 :::
 
