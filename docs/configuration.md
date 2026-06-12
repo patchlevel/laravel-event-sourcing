@@ -133,10 +133,13 @@ You can autowire the connection in your services like this:
 use Doctrine\DBAL\Connection;
 use Patchlevel\LaravelEventSourcing\Attribute\ProjectionConnection;
 
-public function __construct(
-    #[ProjectionConnection]
-    private readonly Connection $connection,
-) {
+final class MyService 
+{
+    public function __construct(
+        #[ProjectionConnection]
+        private readonly Connection $connection,
+    ) {
+    }
 }
 ```
 :::
