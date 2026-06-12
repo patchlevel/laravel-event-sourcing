@@ -1,15 +1,15 @@
 # Configuration
 
-!!! info
+:::note
+You can find out more about event sourcing in the library
+[documentation](/docs/event-sourcing/latest).
+This documentation is limited to the laravel integration and configuration.
+:::
 
-    You can find out more about event sourcing in the library 
-    [documentation](https://event-sourcing.patchlevel.io/latest/). 
-    This documentation is limited to the laravel integration and configuration.
-    
-!!! tip
+:::tip
+We provide a [default configuration](installation.md#configuration-file) that should work for most projects.
+:::
 
-    We provide a [default configuration](./installation.md#configuration-file) that should work for most projects.
-    
 ## Aggregate
 
 A path must be specified for Event Sourcing to know where to look for your aggregates.
@@ -30,14 +30,14 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+The library will automatically register all classes marked with the `#[Aggregate]` attribute in the specified paths.
+:::
 
-    The library will automatically register all classes marked with the `#[Aggregate]` attribute in the specified paths.
-    
-!!! tip
+:::tip
+If you want to learn more about aggregates, read the [library documentation](/docs/event-sourcing/latest/aggregate).
+:::
 
-    If you want to learn more about aggregates, read the [library documentation](https://event-sourcing.patchlevel.io/latest/aggregate/).
-    
 ## Events
 
 A path must be specified for Event Sourcing to know where to look for your events.
@@ -58,10 +58,10 @@ return [
     ],
 ];
 ```
-!!! tip
+:::tip
+If you want to learn more about events, read the [library documentation](/docs/event-sourcing/latest/events).
+:::
 
-    If you want to learn more about events, read the [library documentation](https://event-sourcing.patchlevel.io/latest/events/).
-    
 ## Custom Headers
 
 If you want to implement custom headers for your application, you must specify the
@@ -83,10 +83,10 @@ return [
     ],
 ];
 ```
-!!! tip
+:::tip
+If you want to learn more about custom headers, read the [library documentation](/docs/event-sourcing/latest/message#custom-headers).
+:::
 
-    If you want to learn more about custom headers, read the [library documentation](https://event-sourcing.patchlevel.io/latest/message/#custom-headers).
-    
 ## Connection
 
 You have to specify the connection url to the event store.
@@ -98,11 +98,11 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+You can find out more about how to create a connection
+[here](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/configuration.html)
+:::
 
-    You can find out more about how to create a connection 
-    [here](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/configuration.html)
-    
 ### Connection for Projections
 
 Per default, our event sourcing connection is not available to use in your application.
@@ -116,26 +116,29 @@ return [
     ],
 ];
 ```
-!!! warning
+:::warning
+If you use doctrine migrations, you should exclude you projection tables from the schema generation.
+The schema is managed by the subscription engine and should not be managed by doctrine.
+:::
 
-    If you use doctrine migrations, you should exclude you projection tables from the schema generation.
-    The schema is managed by the subscription engine and should not be managed by doctrine.
-    
-!!! tip
+:::tip
+You can autowire the connection in your services like this:
 
-    You can autowire the connection in your services like this:
-    
-    ```php
-    use Doctrine\DBAL\Connection;
-    use Patchlevel\LaravelEventSourcing\Attribute\ProjectionConnection;
-    
+```php
+use Doctrine\DBAL\Connection;
+use Patchlevel\LaravelEventSourcing\Attribute\ProjectionConnection;
+
+final class MyService
+{
     public function __construct(
         #[ProjectionConnection]
         private readonly Connection $connection,
     ) {
     }
-    ```
-    
+}
+```
+:::
+
 ## Store
 
 The store and schema is configurable.
@@ -156,10 +159,10 @@ Following store types are available:
 - `in_memory`
 - `custom`
 
-!!! note
+:::note
+If you use `custom` store type, you need to set the service id under `store.service`.
+:::
 
-    If you use `custom` store type, you need to set the service id under `store.service`.
-    
 ### Change table Name
 
 You can change the table name of the event store.
@@ -185,10 +188,10 @@ return [
     ],
 ];
 ```
-!!! tip
+:::tip
+This is useful if you have maintenance work on the event store and you want to avoid side effects.
+:::
 
-    This is useful if you have maintenance work on the event store and you want to avoid side effects.
-    
 ### Data Migration
 
 If you want to migrate from your current store to a new store, you can use the following configuration.
@@ -215,23 +218,23 @@ return [
     ],
 ];
 ```
-!!! danger
+:::danger
+Make sure that you use different table names for the old and new store.
+Otherwise your event store will be destroyed.
+:::
 
-    Make sure that you use different table names for the old and new store.
-    Otherwise your event store will be destroyed.
-    
-!!! tip
+:::tip
+Set the `read_only` flag to `true` for the old store to avoid side effects
+and missing events during the migration.
+:::
 
-    Set the `read_only` flag to `true` for the old store to avoid side effects
-    and missing events during the migration.
-    
 ## Subscription
 
-!!! tip
+:::tip
+You can find out more about subscriptions in the library
+[documentation](/docs/event-sourcing/latest/subscription).
+:::
 
-    You can find out more about subscriptions in the library 
-    [documentation](https://event-sourcing.patchlevel.io/latest/subscription/).
-    
 ### Store
 
 You can change where the subscription engine stores its necessary information about the subscription.
@@ -255,10 +258,10 @@ return [
     ],
 ];
 ```
-!!! tip
+:::tip
+You can use the `static_in_memory` store for testing, if you are using transactions to rollback changes.
+:::
 
-    You can use the `static_in_memory` store for testing, if you are using transactions to rollback changes.
-    
 ### Catch Up
 
 If aggregates are used in the processors and new events are generated there,
@@ -287,10 +290,10 @@ return [
     'subscription' => ['throw_on_error' => true],
 ];
 ```
-!!! warning
+:::warning
+This option should not be used in production. The normal behavior is to log the error and continue.
+:::
 
-    This option should not be used in production. The normal behavior is to log the error and continue.
-    
 ### Run After Aggregate Save
 
 If you want to run the subscription engine after an aggregate is saved, you can activate this option.
@@ -324,10 +327,10 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+This works only before each http requests and not if you use the console commands.
+:::
 
-    This works only before each http requests and not if you use the console commands.
-    
 ### Rebuild After File Change
 
 If you want to rebuild the subscription engine after a file change, you can activate this option.
@@ -340,14 +343,14 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+This works only before each http requests and not if you use the console commands.
+:::
 
-    This works only before each http requests and not if you use the console commands.
-    
-!!! tip
+:::tip
+This is using the cache system to store the latest file change time. You can change the cache pool with the `cache_pool` option.
+:::
 
-    This is using the cache system to store the latest file change time. You can change the cache pool with the `cache_pool` option.
-    
 ### Gap Detection
 
 Depending on the database you are using for the eventstore it may be happening that your subscriptions are skipping some
@@ -364,14 +367,14 @@ return [
     ],
 ];
 ```
-!!! info
+:::note
+For more context you can read more about this in [this issue](https://github.com/patchlevel/event-sourcing/issues/727#issuecomment-2757297536).
+:::
 
-    For more context you can read more about this in [this issue](https://github.com/patchlevel/event-sourcing/issues/727#issuecomment-2757297536).
-    
-!!! tip
+:::tip
+You can use both techniques locking and gap detecion to mitigate gaps happening in the subscriptions.
+:::
 
-    You can use both techniques locking and gap detecion to mitigate gaps happening in the subscriptions.
-    
 You can also define how often the gap detection should re-check the gap and how long it should wait, in this example we
 instantly retry the first time, then we wait 500ms and after that we check a last time after 1 second.
 
@@ -412,10 +415,10 @@ return [
 ```
 For now, we *do not* provide a laravel/queue integration, but we are open for suggestions.
 
-!!! note
+:::note
+You can find out more about the command bus and the aggregate handlers [here](/docs/event-sourcing/latest/command-bus).
+:::
 
-    You can find out more about the command bus and the aggregate handlers [here](https://event-sourcing.patchlevel.io/latest/command_bus/).
-    
 ### Instant Retry
 
 You can define the default instant retry configuration for the command bus.
@@ -438,10 +441,10 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+You can find out more about instant retry [here](/docs/event-sourcing/latest/command-bus#instant-retry).
+:::
 
-    You can find out more about instant retry [here](https://event-sourcing.patchlevel.io/latest/command_bus/#instant-retry).
-    
 ## Query Bus
 
 You can enable the query bus integration to use queries to retrieve data from your system.
@@ -455,10 +458,10 @@ return [
 ```
 For now, we *do not* provide a laravel/queue integration, but we are open for suggestions.
 
-!!! note
+:::note
+You can find out more about the query bus [here](/docs/event-sourcing/latest/query-bus).
+:::
 
-    You can find out more about the query bus [here](https://event-sourcing.patchlevel.io/latest/query_bus/).
-    
 ## Event Bus
 
 You can enable the event bus to listen for events and messages synchronously.
@@ -471,10 +474,10 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+Default is the patchlevel [event bus](/docs/event-sourcing/latest/event-bus).
+:::
 
-    Default is the patchlevel [event bus](https://event-sourcing.patchlevel.io/latest/event_bus/).
-    
 ## Snapshot
 
 You only need to tell the aggregate that it should use this snapshot store.
@@ -493,10 +496,10 @@ final class Profile extends BasicAggregateRoot
     // ...
 }
 ```
-!!! note
+:::note
+You can find out more about snapshots [here](/docs/event-sourcing/latest/snapshots).
+:::
 
-    You can find out more about snapshots [here](https://event-sourcing.patchlevel.io/latest/snapshots/).
-    
 ## Cryptography
 
 You can use the library to encrypt and decrypt personal data.
@@ -511,12 +514,12 @@ return [
     ],
 ];
 ```
-!!! tip
+:::tip
+You should activate `use_encrypted_field_name` to mark the fields that are encrypted.
+That allows you later to migrate not encrypted fields to encrypted fields.
+If you have already encrypted fields, you can activate `fallback_to_field_name` to use the old field name as fallback.
+:::
 
-    You should activate `use_encrypted_field_name` to mark the fields that are encrypted.
-    That allows you later to migrate not encrypted fields to encrypted fields.
-    If you have already encrypted fields, you can activate `fallback_to_field_name` to use the old field name as fallback.
-    
 If you want to use another algorithm, you can specify this here:
 
 ```php
@@ -527,10 +530,10 @@ return [
     ],
 ];
 ```
-!!! note
+:::note
+You can find out more about sensitive data [here](/docs/event-sourcing/latest/personal-data).
+:::
 
-    You can find out more about sensitive data [here](https://event-sourcing.patchlevel.io/latest/personal_data/).
-    
 ## Clock
 
 The clock is used to return the current time as `DateTimeImmutable`.
@@ -544,10 +547,10 @@ return [
     'clock' => ['freeze' => '2020-01-01 22:00:00'],
 ];
 ```
-!!! note
+:::note
+If freeze is not set, then the system clock is used.
+:::
 
-    If freeze is not set, then the system clock is used.
-    
 ### PSR-20
 
 You can also use your own implementation of your choice.
