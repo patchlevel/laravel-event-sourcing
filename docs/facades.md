@@ -63,21 +63,22 @@ $messages = Store::load(
     ),
 );
 ```
-!!! note
 
-    This documentation is limited to the package integration.
-    You should also read the [library documentation](https://event-sourcing.patchlevel.io/latest/).
-    
+:::note
+This documentation is limited to the package integration.
+You should also read the [library documentation](/docs/event-sourcing/latest).
+:::
+
 ## Projection Connection
 
 You can access the projection connection using the `ProjectionConnection` facade.
 This facade provides you the `DBAL\Connection` used to connect to the projection database.
 
-!!! note
+:::note
+This documentation is limited to the package integration.
+You should also read the [dbal documentation](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/data-retrieval-and-manipulation.html#api).
+:::
 
-    This documentation is limited to the package integration.
-    You should also read the [dbal documentation](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/data-retrieval-and-manipulation.html#api).
-    
 ## CommandBus
 
 You can access the command bus using the `CommandBus` facade. With this facade you can dispatch commands.

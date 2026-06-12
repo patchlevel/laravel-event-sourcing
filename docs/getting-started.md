@@ -3,11 +3,11 @@
 In our little getting started example, we manage hotels.
 We keep the example small, so we can only create hotels and let guests check in and check out.
 
-!!! info
+:::note
+First of all, the package has to be installed and configured.
+If you haven't already done so, see the [installation introduction](installation.md).
+:::
 
-    First of all, the package has to be installed and configured.
-    If you haven't already done so, see the [installation introduction](installation.md).
-    
 ## Define some events
 
 First we define the events that happen in our system.
@@ -62,10 +62,11 @@ final class GuestIsCheckedOut
     }
 }
 ```
-!!! note
 
-    You can find out more about events in the [library](https://event-sourcing.patchlevel.io/latest/events/).
-    
+:::note
+You can find out more about events in the [library](/docs/event-sourcing/latest/events).
+:::
+
 ## Define aggregates
 
 Next we need to define the hotel aggregate.
@@ -163,10 +164,11 @@ final class Hotel extends AggregateRoot
     }
 }
 ```
-!!! note
 
-    You can find out more about aggregates in the [library](https://event-sourcing.patchlevel.io/latest/aggregate/).
-    
+:::note
+You can find out more about aggregates in the [library](/docs/event-sourcing/latest/aggregate).
+:::
+
 ## Define projections
 
 So that we can see all the hotels on our website and also see how many guests are currently visiting the hotels,
@@ -260,10 +262,11 @@ return [
     ],
 ];
 ```
-!!! note
 
-    You can find out more about projections in the [library](https://event-sourcing.patchlevel.io/latest/subscription/).
-    
+:::note
+You can find out more about projections in the [library](/docs/event-sourcing/latest/subscription).
+:::
+
 ## Processor
 
 In our example we also want to send an email to the head office as soon as a guest is checked in.
@@ -304,10 +307,11 @@ return [
     ],
 ];
 ```
-!!! note
 
-    You can find out more about processor in the [library](https://event-sourcing.patchlevel.io/latest/subscription/)
-    
+:::note
+You can find out more about processor in the [library](/docs/event-sourcing/latest/subscription)
+:::
+
 ## Usage
 
 We are now ready to use the Event Sourcing System.
@@ -384,21 +388,21 @@ Route::post('/hotel/create', [HotelController::class, 'create']);
 Route::post('/hotel/{id}/check-in', [HotelController::class, 'checkIn']);
 Route::post('/hotel/{id}/check-out', [HotelController::class, 'checkOut']);
 ```
-!!! warning
 
-    Don't forget to define the path to the [api routes](https://laravel.com/docs/11.x/routing#api-routes) in the `bootstrap/app.php` configuration file.
-    
+:::warning
+Don't forget to define the path to the [api routes](https://laravel.com/docs/11.x/routing#api-routes) in the `bootstrap/app.php` configuration file.
+:::
+
 ## Result
 
-!!! success
+:::success
+We have successfully implemented and used event sourcing.
 
-    We have successfully implemented and used event sourcing.
-    
-    Feel free to browse further in the documentation for more detailed information. 
-    If there are still open questions, create a ticket on Github and we will try to help you.
-    
-!!! note
+Feel free to browse further in the documentation for more detailed information. 
+If there are still open questions, create a ticket on Github and we will try to help you.
+:::
 
-    This documentation is limited to the package integration.
-    You should also read the [library documentation](https://event-sourcing.patchlevel.io/latest/).
-    
+:::note
+This documentation is limited to the package integration.
+You should also read the [library documentation](/docs/event-sourcing/latest).
+:::
