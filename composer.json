@@ -24,7 +24,7 @@
     },
     "require-dev": {
         "ext-pdo_sqlite": "*",
-        "infection/infection": "^0.33.0",
+        "infection/infection": "^0.34.0",
         "larastan/larastan": "v3.10.0",
         "laravel/framework": "^11.0 || ^12.0 || ^13.0",
         "league/commonmark": "^2.4",
