@@ -32,7 +32,7 @@ final class PersonalDataTest extends IntegrationTestCase
 {
     public function testSuccessfulWithEvent(): void
     {
-        $cipherKeyStore = new IlluminateCipherKeyStore($this->connection);
+        $cipherKeyStore = new IlluminateCipherKeyStore($this->connection, 'crypto_keys');
         $cryptographer = PersonalDataPayloadCryptographer::createWithOpenssl($cipherKeyStore);
 
         $store = new StreamIlluminateStore(
@@ -71,7 +71,7 @@ final class PersonalDataTest extends IntegrationTestCase
 
     public function testRemoveKeyWithEvent(): void
     {
-        $cipherKeyStore = new IlluminateCipherKeyStore($this->connection);
+        $cipherKeyStore = new IlluminateCipherKeyStore($this->connection, 'crypto_keys');
         $cryptographer = PersonalDataPayloadCryptographer::createWithOpenssl($cipherKeyStore);
 
         $subscriptionStore = new IlluminateSubscriptionStore($this->connection);
@@ -133,7 +133,7 @@ final class PersonalDataTest extends IntegrationTestCase
 
     public function testRemoveKeyWithEventAndSnapshot(): void
     {
-        $cipherKeyStore = new IlluminateCipherKeyStore($this->connection);
+        $cipherKeyStore = new IlluminateCipherKeyStore($this->connection, 'crypto_keys');
         $cryptographer = PersonalDataPayloadCryptographer::createWithOpenssl($cipherKeyStore);
 
         $subscriptionStore = new IlluminateSubscriptionStore($this->connection);

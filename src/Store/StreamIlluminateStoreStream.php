@@ -24,7 +24,6 @@ use stdClass;
 use Traversable;
 
 use function is_array;
-use function is_int;
 use function is_string;
 
 /** @implements IteratorAggregate<Message> */
@@ -116,8 +115,6 @@ final class StreamIlluminateStoreStream implements Stream, IteratorAggregate
         return $this->generator;
     }
 
-    /** @return Generator<Message> */
-
     /**
      * @param iterable<array<string, mixed>|stdClass> $result
      *
@@ -135,11 +132,8 @@ final class StreamIlluminateStoreStream implements Stream, IteratorAggregate
                 ++$this->position;
             }
 
+            /** @var positive-int $id */
             $id = (int)$this->extractValue($data, 'id');
-
-            if ($id <= 0) {
-                continue;
-            }
 
             $this->index = $id;
 
@@ -162,9 +156,7 @@ final class StreamIlluminateStoreStream implements Stream, IteratorAggregate
 
             $playhead = $this->extractValue($data, 'playhead');
 
-            if (is_int($playhead) && $playhead > 0) {
-                $message = $message->withHeader(new PlayheadHeader($playhead));
-            } elseif (!is_int($playhead) && $playhead !== null && (int)$playhead > 0) {
+            if ($playhead !== null) {
                 $message = $message->withHeader(new PlayheadHeader((int)$playhead));
             }
 

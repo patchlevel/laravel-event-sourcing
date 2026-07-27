@@ -7,7 +7,7 @@ namespace Patchlevel\LaravelEventSourcing\Store;
 use Closure;
 use DateTimeImmutable;
 use Illuminate\Database\Connection;
-use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\MySqlConnection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\UniqueConstraintViolationException as IlluminateUniqueConstraintViolationException;
 use Patchlevel\EventSourcing\Clock\SystemClock;
@@ -31,6 +31,8 @@ use Patchlevel\EventSourcing\Store\Header\IndexHeader;
 use Patchlevel\EventSourcing\Store\Header\PlayheadHeader;
 use Patchlevel\EventSourcing\Store\Header\RecordedOnHeader;
 use Patchlevel\EventSourcing\Store\Header\StreamNameHeader;
+use Patchlevel\EventSourcing\Store\LockCouldNotBeAcquired;
+use Patchlevel\EventSourcing\Store\LockCouldNotBeFreed;
 use Patchlevel\EventSourcing\Store\LockingNotImplemented;
 use Patchlevel\EventSourcing\Store\MissingDataForStorage;
 use Patchlevel\EventSourcing\Store\Stream;
@@ -39,20 +41,24 @@ use Patchlevel\EventSourcing\Store\SubscriptionStore;
 use Patchlevel\EventSourcing\Store\UniqueConstraintViolation;
 use Patchlevel\EventSourcing\Store\UnsupportedCriterion;
 use PDO;
+use Pdo\Pgsql;
 use Psr\Clock\ClockInterface;
 use Ramsey\Uuid\Uuid;
+use stdClass;
 
 use function array_filter;
 use function array_values;
 use function class_exists;
 use function count;
+use function current;
 use function explode;
 use function floor;
 use function in_array;
-use function method_exists;
 use function sprintf;
 use function str_contains;
 use function str_replace;
+
+use const PHP_VERSION_ID;
 
 /**
  * @phpstan-type Row = array{
@@ -79,6 +85,14 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
      */
     private const DEFAULT_LOCK_ID = 133742;
 
+    /**
+     * MariaDB does not support an infinite (negative) lock timeout. Very large values such as
+     * PHP_INT_MAX overflow its internal timeout arithmetic and make GET_LOCK return NULL. We
+     * therefore use a large but safe value (INT32_MAX minus a small buffer) as "effectively
+     * infinite" wait.
+     */
+    private const INFINITE_MARIADB_LOCK_TIMEOUT = 2_147_482_647;
+
     private readonly HeadersSerializer $headersSerializer;
 
     private readonly ClockInterface $clock;
@@ -90,7 +104,7 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
     /** @param array{table_name?: string, locking?: bool, lock_id?: int, lock_timeout?: int, keep_index?: bool} $config */
     public function __construct(
-        private readonly ConnectionInterface $connection,
+        private readonly Connection $connection,
         private readonly EventSerializer $eventSerializer,
         HeadersSerializer|null $headersSerializer = null,
         ClockInterface|null $clock = null,
@@ -135,6 +149,11 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
             $this->eventSerializer,
             $this->headersSerializer,
         );
+    }
+
+    public function connection(): Connection
+    {
+        return $this->connection;
     }
 
     public function count(Criteria|null $criteria = null): int
@@ -274,9 +293,7 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
     public function supportSubscription(): bool
     {
-        return $this->driverName() === 'pgsql'
-            && class_exists(PDO::class)
-            && method_exists($this->connection, 'getPdo');
+        return $this->driverName() === 'pgsql' && class_exists(PDO::class);
     }
 
     public function setupSubscription(): void
@@ -320,11 +337,17 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
         $this->connection->statement(sprintf('LISTEN "%s"', $this->config['table_name']));
 
-        if (!$this->connection instanceof Connection) {
+        if (PHP_VERSION_ID >= 80400) {
+            /** @var Pgsql $nativeConnection */
+            $nativeConnection = $this->connection->getPdo();
+            $nativeConnection->getNotify(PDO::FETCH_ASSOC, $timeoutMilliseconds);
+
             return;
         }
 
-        $this->connection->getPdo()->pgsqlGetNotify(PDO::FETCH_ASSOC, $timeoutMilliseconds);
+        /** @var PDO $nativeConnection */
+        $nativeConnection = $this->connection->getPdo();
+        $nativeConnection->pgsqlGetNotify(PDO::FETCH_ASSOC, $timeoutMilliseconds);
     }
 
     /** @return list<object> */
@@ -361,7 +384,7 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
                     }
 
                     $builder->where(static function (Builder $query) use ($criterion): void {
-                        foreach ($criterion->streamName as $index => $streamName) {
+                        foreach ($criterion->streamName as $streamName) {
                             if (str_contains($streamName, '*')) {
                                 $query->orWhere('stream', 'LIKE', str_replace('*', '%', $streamName));
                             } else {
@@ -415,19 +438,33 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
         $driver = $this->driverName();
 
         if ($driver === 'pgsql') {
-            $this->connection->selectOne('SELECT pg_advisory_xact_lock(?)', [$this->config['lock_id']]);
+            $this->connection->select('SELECT pg_advisory_xact_lock(?)', [$this->config['lock_id']]);
 
             return;
         }
 
         if ($driver === 'mariadb' || $driver === 'mysql') {
-            $this->connection->select(
+            $lockTimeout = $this->config['lock_timeout'];
+
+            if ($lockTimeout < 0 && $this->isMariaDb()) {
+                $lockTimeout = self::INFINITE_MARIADB_LOCK_TIMEOUT;
+            }
+
+            $result = $this->fetchLockResult(
                 'SELECT GET_LOCK(?, ?)',
                 [
                     (string)$this->config['lock_id'],
-                    $this->config['lock_timeout'],
+                    $lockTimeout,
                 ],
             );
+
+            if ($result === 0) {
+                throw LockCouldNotBeAcquired::byTimeout($this->config['lock_id'], $this->config['lock_timeout']);
+            }
+
+            if ($result !== 1) {
+                throw LockCouldNotBeAcquired::byError($this->config['lock_id']);
+            }
 
             return;
         }
@@ -436,7 +473,7 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
             return; // sql locking is not needed because of file locking
         }
 
-        throw new LockingNotImplemented(Connection::class);
+        throw new LockingNotImplemented($this->connection::class);
     }
 
     private function unlock(): void
@@ -450,12 +487,18 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
         }
 
         if ($driver === 'mariadb' || $driver === 'mysql') {
-            $this->connection->select(
+            $result = $this->fetchLockResult(
                 'SELECT RELEASE_LOCK(?)',
-                [
-                    (string)$this->config['lock_id'],
-                ],
+                [(string)$this->config['lock_id']],
             );
+
+            if ($result === 0) {
+                throw LockCouldNotBeFreed::notOurs($this->config['lock_id']);
+            }
+
+            if ($result !== 1) {
+                throw LockCouldNotBeFreed::notExist($this->config['lock_id']);
+            }
 
             return;
         }
@@ -464,7 +507,30 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
             return; // sql locking is not needed because of file locking
         }
 
-        throw new LockingNotImplemented(Connection::class);
+        throw new LockingNotImplemented($this->connection::class);
+    }
+
+    /**
+     * GET_LOCK and RELEASE_LOCK return 1 on success, 0 on timeout / foreign lock
+     * and NULL on error. The driver may hand the value back as int or string.
+     *
+     * @param list<mixed> $bindings
+     */
+    private function fetchLockResult(string $query, array $bindings): int|null
+    {
+        $row = $this->connection->selectOne($query, $bindings);
+
+        if (!$row instanceof stdClass) {
+            return null;
+        }
+
+        $value = current((array)$row);
+
+        if ($value === null || $value === false) {
+            return null;
+        }
+
+        return (int)$value;
     }
 
     private function createTriggerFunctionName(): string
@@ -480,10 +546,19 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
     private function driverName(): string
     {
-        if ($this->connection instanceof Connection) {
-            return $this->connection->getDriverName();
+        return $this->connection->getDriverName();
+    }
+
+    /**
+     * A MariaDB server is commonly reached through the "mysql" driver, so the driver name alone
+     * is not enough to tell both apart. Illuminate detects it by the reported server version.
+     */
+    private function isMariaDb(): bool
+    {
+        if ($this->driverName() === 'mariadb') {
+            return true;
         }
 
-        return 'unknown';
+        return $this->connection instanceof MySqlConnection && $this->connection->isMaria();
     }
 }
