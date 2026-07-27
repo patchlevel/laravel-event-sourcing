@@ -55,6 +55,8 @@ use Patchlevel\EventSourcing\Snapshot\DefaultSnapshotStore;
 use Patchlevel\EventSourcing\Snapshot\SnapshotStore;
 use Patchlevel\EventSourcing\Store\Store;
 use Patchlevel\EventSourcing\Subscription\Engine\CatchUpSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\Cleanup\Cleaner;
+use Patchlevel\EventSourcing\Subscription\Cleanup\DefaultCleaner;
 use Patchlevel\EventSourcing\Subscription\Engine\GapResolverStoreMessageLoader;
 use Patchlevel\EventSourcing\Subscription\Engine\MessageLoader;
 use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngine;
@@ -78,6 +80,7 @@ use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
 use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\IlluminateCleanupTaskHandler;
 use Patchlevel\LaravelEventSourcing\Subscription\Store\IlluminateSubscriptionStore;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\Profile;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\ProfileProcessor;
@@ -114,6 +117,8 @@ final class ServicesTest extends TestCase
         yield [SubscriberMetadataFactory::class, AttributeSubscriberMetadataFactory::class];
         yield ['event_sourcing.connection', Connection::class];
         yield ['event_sourcing.public_connection', Connection::class];
+        yield ['event_sourcing.illuminate_connection', Connection::class];
+        yield ['event_sourcing.illuminate_public_connection', Connection::class];
         yield [Store::class, StreamIlluminateStore::class];
         yield [EventRegistry::class, EventRegistry::class];
         yield [EventSerializer::class, DefaultEventSerializer::class];
@@ -140,6 +145,8 @@ final class ServicesTest extends TestCase
         yield [RetryStrategyRepository::class, RetryStrategyRepository::class];
         yield [SubscriberHelper::class, SubscriberHelper::class];
         yield [SubscriptionStore::class, IlluminateSubscriptionStore::class];
+        yield [Cleaner::class, DefaultCleaner::class];
+        yield [IlluminateCleanupTaskHandler::class, IlluminateCleanupTaskHandler::class];
         yield [SubscriberAccessorRepository::class, MetadataSubscriberAccessorRepository::class];
         yield [SubscriptionEngine::class, CatchUpSubscriptionEngine::class];
         yield [AutoSetupMiddleware::class, AutoSetupMiddleware::class];
@@ -157,6 +164,32 @@ final class ServicesTest extends TestCase
         yield [CipherKeyStore::class, IlluminateCipherKeyStore::class];
         yield [Cipher::class, OpensslCipher::class];
         yield [PayloadCryptographer::class, PersonalDataPayloadCryptographer::class];
+    }
+
+    public function testIlluminateConnectionIdsAreAliases(): void
+    {
+        self::assertSame(
+            $this->app->get('event_sourcing.connection'),
+            $this->app->get('event_sourcing.illuminate_connection'),
+        );
+        self::assertSame(
+            $this->app->get('event_sourcing.public_connection'),
+            $this->app->get('event_sourcing.illuminate_public_connection'),
+        );
+    }
+
+    public function testDbalConnectionIdsAreNotRegistered(): void
+    {
+        self::assertFalse($this->app->bound('event_sourcing.dbal_connection'));
+        self::assertFalse($this->app->bound('event_sourcing.dbal_public_connection'));
+    }
+
+    public function testConnectionIsRegisteredWithoutDedicatedConnection(): void
+    {
+        $this->setConfig('event-sourcing.connection.provide_dedicated_connection', false);
+
+        self::assertInstanceOf(Connection::class, $this->app->get('event_sourcing.connection'));
+        self::assertInstanceOf(Connection::class, $this->app->get('event_sourcing.illuminate_connection'));
     }
 
     public function testPublicConnectionIsNotSameAsPrivate(): void

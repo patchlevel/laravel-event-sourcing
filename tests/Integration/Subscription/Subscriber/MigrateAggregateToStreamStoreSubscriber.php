@@ -75,7 +75,7 @@ final class MigrateAggregateToStreamStoreSubscriber implements BatchableSubscrib
             $table->string('event_id', 255);
             $table->string('event_name', 255);
             $table->json('event_payload');
-            $table->dateTimeTz('recorded_on');
+            $table->dateTime('recorded_on');
             $table->boolean('archived')->default(false);
             $table->json('custom_headers');
 

@@ -186,22 +186,14 @@ SQL,
         $this->connection->beginTransaction();
 
         try {
-            $result = $closure();
-        } catch (Throwable $e) {
-            if ($this->connection->transactionLevel() > 0) {
-                $this->connection->rollBack();
+            return $closure();
+        } finally {
+            try {
+                $this->connection->commit();
+            } catch (Throwable $e) {
+                throw new TransactionCommitNotPossible($e);
             }
-
-            throw $e;
         }
-
-        try {
-            $this->connection->commit();
-        } catch (Throwable $e) {
-            throw new TransactionCommitNotPossible($e);
-        }
-
-        return $result;
     }
 
     /** @param Row $row */

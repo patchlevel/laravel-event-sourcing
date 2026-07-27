@@ -66,6 +66,9 @@ use Patchlevel\EventSourcing\Snapshot\SnapshotStore;
 use Patchlevel\EventSourcing\Store\DoctrineDbalStore;
 use Patchlevel\EventSourcing\Store\Store;
 use Patchlevel\EventSourcing\Subscription\Engine\CatchUpSubscriptionEngine;
+use Patchlevel\EventSourcing\Subscription\Cleanup\Cleaner;
+use Patchlevel\EventSourcing\Subscription\Cleanup\Dbal\DbalCleanupTaskHandler;
+use Patchlevel\EventSourcing\Subscription\Cleanup\DefaultCleaner;
 use Patchlevel\EventSourcing\Subscription\Engine\GapResolverStoreMessageLoader;
 use Patchlevel\EventSourcing\Subscription\Engine\MessageLoader;
 use Patchlevel\EventSourcing\Subscription\Engine\SubscriptionEngine;
@@ -124,6 +127,8 @@ final class DbalServicesTest extends TestCase
         yield [SubscriberMetadataFactory::class, AttributeSubscriberMetadataFactory::class];
         yield ['event_sourcing.connection', Connection::class];
         yield ['event_sourcing.public_connection', Connection::class];
+        yield ['event_sourcing.dbal_connection', Connection::class];
+        yield ['event_sourcing.dbal_public_connection', Connection::class];
         yield [Store::class, DoctrineDbalStore::class];
         yield [EventRegistry::class, EventRegistry::class];
         yield [EventSerializer::class, DefaultEventSerializer::class];
@@ -157,6 +162,8 @@ final class DbalServicesTest extends TestCase
         yield [RetryStrategyRepository::class, RetryStrategyRepository::class];
         yield [SubscriberHelper::class, SubscriberHelper::class];
         yield [SubscriptionStore::class, DoctrineSubscriptionStore::class];
+        yield [Cleaner::class, DefaultCleaner::class];
+        yield [DbalCleanupTaskHandler::class, DbalCleanupTaskHandler::class];
         yield [SubscriberAccessorRepository::class, MetadataSubscriberAccessorRepository::class];
         yield [SubscriptionEngine::class, CatchUpSubscriptionEngine::class];
         yield [AutoSetupMiddleware::class, AutoSetupMiddleware::class];
@@ -174,6 +181,20 @@ final class DbalServicesTest extends TestCase
         yield [CipherKeyStore::class, DoctrineCipherKeyStore::class];
         yield [Cipher::class, OpensslCipher::class];
         yield [PayloadCryptographer::class, PersonalDataPayloadCryptographer::class];
+    }
+
+    public function testDbalConnectionIdsAreAliases(): void
+    {
+        $this->configureDbal();
+
+        self::assertSame(
+            $this->app->get('event_sourcing.connection'),
+            $this->app->get('event_sourcing.dbal_connection'),
+        );
+        self::assertSame(
+            $this->app->get('event_sourcing.public_connection'),
+            $this->app->get('event_sourcing.dbal_public_connection'),
+        );
     }
 
     public function testPublicConnectionIsNotSameAsPrivate(): void

@@ -5,11 +5,19 @@ declare(strict_types=1);
 namespace Patchlevel\LaravelEventSourcing\Tests\Integration\Store;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Patchlevel\EventSourcing\Clock\FrozenClock;
 use Patchlevel\EventSourcing\Message\Message;
 use Patchlevel\EventSourcing\Serializer\DefaultEventSerializer;
+use Patchlevel\EventSourcing\Store\Criteria\AggregateIdCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\ArchivedCriterion;
 use Patchlevel\EventSourcing\Store\Criteria\Criteria;
+use Patchlevel\EventSourcing\Store\Criteria\EventIdCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\EventsCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\FromIndexCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\FromPlayheadCriterion;
 use Patchlevel\EventSourcing\Store\Criteria\StreamCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\ToIndexCriterion;
 use Patchlevel\EventSourcing\Store\Criteria\ToPlayheadCriterion;
 use Patchlevel\EventSourcing\Store\Header\EventIdHeader;
 use Patchlevel\EventSourcing\Store\Header\IndexHeader;
@@ -18,6 +26,7 @@ use Patchlevel\EventSourcing\Store\Header\RecordedOnHeader;
 use Patchlevel\EventSourcing\Store\Header\StreamNameHeader;
 use Patchlevel\EventSourcing\Store\StreamStore;
 use Patchlevel\EventSourcing\Store\UniqueConstraintViolation;
+use Patchlevel\EventSourcing\Store\UnsupportedCriterion;
 use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Events\ExternEvent;
@@ -520,5 +529,187 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
         $streams = $this->store->streams();
 
         self::assertEquals(['foo'], $streams);
+    }
+
+    public function testRecordedOnKeepsTheWallClockTime(): void
+    {
+        $profileId = ProfileId::generate();
+        $recordedOn = new DateTimeImmutable('2020-01-01 10:00:00', new DateTimeZone('America/New_York'));
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader($recordedOn)),
+        );
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load();
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(1, $messages);
+
+            $loadedRecordedOn = $messages[0]->header(RecordedOnHeader::class)->recordedOn;
+
+            self::assertSame(
+                $recordedOn->format('Y-m-d H:i:s'),
+                $loadedRecordedOn->format('Y-m-d H:i:s'),
+            );
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testCount(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1)),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2)),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        );
+
+        self::assertSame(3, $this->store->count());
+        self::assertSame(2, $this->store->count(new Criteria(new StreamCriterion('profile-*'))));
+        self::assertSame(1, $this->store->count(new Criteria(new StreamCriterion('foo'))));
+    }
+
+    public function testLoadWithLimitOffsetAndBackwards(): void
+    {
+        $profileId = ProfileId::generate();
+        $streamName = sprintf('profile-%s', $profileId->toString());
+
+        $messages = [];
+
+        for ($playhead = 1; $playhead <= 5; $playhead++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'name-' . $playhead))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader($playhead));
+        }
+
+        $this->store->save(...$messages);
+
+        self::assertSame([1, 2], $this->loadPlayheads(limit: 2));
+        self::assertSame([3, 4], $this->loadPlayheads(limit: 2, offset: 2));
+        self::assertSame([1, 2, 3], $this->loadPlayheads(limit: 3, offset: 0));
+        self::assertSame([5, 4, 3, 2, 1], $this->loadPlayheads(backwards: true));
+    }
+
+    public function testLoadWithIndexCriteria(): void
+    {
+        $profileId = ProfileId::generate();
+        $streamName = sprintf('profile-%s', $profileId->toString());
+
+        $messages = [];
+
+        for ($playhead = 1; $playhead <= 5; $playhead++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'name-' . $playhead))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader($playhead));
+        }
+
+        $this->store->save(...$messages);
+
+        self::assertSame([4, 5], $this->loadPlayheads(criteria: new Criteria(new FromIndexCriterion(3))));
+        self::assertSame([1, 2], $this->loadPlayheads(criteria: new Criteria(new ToIndexCriterion(3))));
+        self::assertSame([3, 4, 5], $this->loadPlayheads(criteria: new Criteria(new FromPlayheadCriterion(2))));
+        self::assertSame(
+            [3, 4],
+            $this->loadPlayheads(criteria: new Criteria(new FromPlayheadCriterion(2), new ToPlayheadCriterion(5))),
+        );
+    }
+
+    public function testLoadWithEventCriteria(): void
+    {
+        $profileId = ProfileId::generate();
+        $eventId = '0190e47e-77e9-7b90-bf62-08bbf0ab9b4b';
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new EventIdHeader($eventId)),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        );
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load(new Criteria(new EventsCriterion(['profile.created'])));
+
+            self::assertCount(1, iterator_to_array($stream));
+        } finally {
+            $stream?->close();
+        }
+
+        try {
+            $stream = $this->store->load(new Criteria(new EventIdCriterion($eventId)));
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(1, $messages);
+            self::assertSame($eventId, $messages[0]->header(EventIdHeader::class)->eventId);
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testLoadWithArchivedCriterion(): void
+    {
+        $profileId = ProfileId::generate();
+        $streamName = sprintf('profile-%s', $profileId->toString());
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader(1)),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader(2)),
+        );
+
+        $this->store->archive(new Criteria(new StreamCriterion($streamName), new ToPlayheadCriterion(2)));
+
+        self::assertSame([2], $this->loadPlayheads(criteria: new Criteria(new ArchivedCriterion(false))));
+        self::assertSame([1], $this->loadPlayheads(criteria: new Criteria(new ArchivedCriterion(true))));
+    }
+
+    public function testUnsupportedCriterion(): void
+    {
+        $this->expectException(UnsupportedCriterion::class);
+
+        $this->store->count(new Criteria(new AggregateIdCriterion('1')));
+    }
+
+    /** @return list<int> */
+    private function loadPlayheads(
+        Criteria|null $criteria = null,
+        int|null $limit = null,
+        int|null $offset = null,
+        bool $backwards = false,
+    ): array {
+        $stream = null;
+
+        try {
+            $stream = $this->store->load($criteria, $limit, $offset, $backwards);
+
+            $playheads = [];
+
+            foreach ($stream as $message) {
+                $playheads[] = $message->header(PlayheadHeader::class)->playhead;
+            }
+
+            return $playheads;
+        } finally {
+            $stream?->close();
+        }
     }
 }

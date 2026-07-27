@@ -15,13 +15,13 @@ return new class extends Migration
             $table->string('event_id', 255);
             $table->string('event_name', 255);
             $table->json('event_payload');
-            $table->dateTimeTz('recorded_on');
+            $table->dateTime('recorded_on');
             $table->boolean('archived')->default(false);
             $table->json('custom_headers');
 
             $table->unique('event_id');
             $table->unique(['stream', 'playhead']);
-            $table->unique(['stream', 'playhead', 'archived']);
+            $table->index(['stream', 'playhead', 'archived']);
         });
 
         Schema::create('subscriptions', function (Blueprint $table) {
@@ -54,6 +54,6 @@ return new class extends Migration
     {
         Schema::dropIfExists('event_store');
         Schema::dropIfExists('subscriptions');
-        Schema::dropIfExists('event_store_cipher_keys');
+        Schema::dropIfExists('crypto_keys');
     }
 };

@@ -89,18 +89,44 @@ If you want to learn more about custom headers, read the [library documentation]
 
 ## Connection
 
-You have to specify the connection url to the event store.
+By default the event store uses the laravel database connection.
+You can pick which connection from `database.connections` should be used.
 
 ```php
 return [
     'connection' => [
+        'type' => 'illuminate',
+        'connection' => env('EVENT_SOURCING_DB_CONNECTION', env('DB_CONNECTION', 'sqlite')),
+    ],
+];
+```
+
+Following connection types are available:
+
+- `illuminate` *default*: uses the laravel database connection
+- `dbal`: creates a dedicated doctrine dbal connection
+
+The `dbal` type expects a connection url instead:
+
+```php
+return [
+    'connection' => [
+        'type' => 'dbal',
         'url' => env('EVENT_SOURCING_DB_URL'),
     ],
 ];
 ```
 :::note
-You can find out more about how to create a connection
+You can find out more about how to create a dbal connection
 [here](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/configuration.html)
+:::
+
+:::warning
+The connection type has to fit the store type.
+The `illuminate_stream` store needs an `illuminate` connection,
+the `dbal_*` stores need a `dbal` connection.
+The schema commands (`event-sourcing:schema:*`) are only registered for the `dbal` connection type.
+With `illuminate` you manage the schema with the shipped laravel migration instead.
 :::
 
 ### Connection for Projections
@@ -154,10 +180,17 @@ return [
 ```
 Following store types are available:
 
-- `dbal_aggregate` *default (deprecated)*
-- `dbal_stream` *recommended*
+- `illuminate_stream` *default*
+- `dbal_stream`
+- `dbal_aggregate` *(deprecated)*
 - `in_memory`
 - `custom`
+
+:::note
+`illuminate_stream` and `dbal_stream` use the same table layout.
+They only differ in the database abstraction they build on:
+`illuminate_stream` uses the laravel connection, `dbal_stream` uses doctrine dbal.
+:::
 
 :::note
 If you use `custom` store type, you need to set the service id under `store.service`.
@@ -177,14 +210,14 @@ return [
 ```
 ### Read Only Mode
 
-For `dbal_aggregate` and `dbal_stream` store types you can activate the read only mode.
+For the `illuminate_stream`, `dbal_aggregate` and `dbal_stream` store types you can activate the read only mode.
 Readings are possible, but if you try to write, an exception `StoreIsReadOnly` is thrown.
 
 ```php
 return [
     'store' => [
         'type' => 'dbal_stream',
-        'readonly' => true,
+        'read_only' => true,
     ],
 ];
 ```
@@ -205,7 +238,7 @@ use Patchlevel\EventSourcing\Message\Translator\AggregateToStreamHeaderTranslato
 return [
     'store' => [
         'type' => 'dbal_aggregate',
-        'readonly' => true,
+        'read_only' => true,
         'options' => ['table_name' => 'old_store'],
         'migrate_to_new_store' => [
             'enabled' => true,
@@ -238,11 +271,12 @@ You can find out more about subscriptions in the library
 ### Store
 
 You can change where the subscription engine stores its necessary information about the subscription.
-Default is `dbal`, which means it stores it in the same DB that is used by the dbal event store.
+Default is `illuminate`, which means it stores it in the same DB that is used by the event store.
 
 Otherwise you can choose between the following stores:
 
-- `dbal` *default*
+- `illuminate` *default*
+- `dbal`
 - `in_memory`
 - `static_in_memory`
 - `custom`
@@ -251,7 +285,7 @@ Otherwise you can choose between the following stores:
 return [
     'subscription' => [
         'store' => [
-            'type' => 'custom', // default is 'dbal'
+            'type' => 'custom', // default is 'illuminate'
             'service' => 'my_subscription_store',
             'options' => ['table_name' => 'my_subscription_store'],
         ],
@@ -287,7 +321,9 @@ This is useful for testing and development to get direct feedback if something i
 
 ```php
 return [
-    'subscription' => ['throw_on_error' => true],
+    'subscription' => [
+        'throw_on_error' => ['enabled' => true],
+    ],
 ];
 ```
 :::warning
@@ -527,6 +563,19 @@ return [
     'cryptography' => [
         'enabled' => true,
         'algorithm' => 'aes256',
+    ],
+];
+```
+
+The cipher keys are stored in the `crypto_keys` table.
+You can change the store implementation and the table name:
+
+```php
+return [
+    'cryptography' => [
+        'enabled' => true,
+        'store' => 'illuminate', // or 'dbal'
+        'options' => ['table_name' => 'crypto_keys'],
     ],
 ];
 ```
