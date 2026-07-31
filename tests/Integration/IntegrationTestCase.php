@@ -30,7 +30,7 @@ abstract class IntegrationTestCase extends Orchestra
         Schema::dropIfExists('event_store');
         Schema::dropIfExists('subscriptions');
         Schema::dropIfExists('crypto_keys');
-        $migration = require __DIR__ . '/../../database/migrations/create_eventsourcing_tables.php';
+        $migration = require __DIR__ . '/../../database/migrations/0001_01_01_000000_create_eventsourcing_tables.php';
         $migration->up();
     }
 

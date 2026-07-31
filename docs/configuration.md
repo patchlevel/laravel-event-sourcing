@@ -7,7 +7,7 @@ This documentation is limited to the laravel integration and configuration.
 :::
 
 :::tip
-We provide a [default configuration](installation.md#configuration-file) that should work for most projects.
+We provide a [default configuration](installation.md#configuration) that should work for most projects.
 :::
 
 ## Aggregate
@@ -117,16 +117,23 @@ return [
 ];
 ```
 :::note
-You can find out more about how to create a dbal connection
-[here](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/configuration.html)
+You can find out more about how to create a
+[dbal connection](https://www.doctrine-project.org/projects/doctrine-dbal/en/latest/reference/configuration.html).
 :::
 
 :::warning
 The connection type has to fit the store type.
 The `illuminate_stream` store needs an `illuminate` connection,
 the `dbal_*` stores need a `dbal` connection.
-The schema commands (`event-sourcing:schema:*`) are only registered for the `dbal` connection type.
+:::
+
+The connection type also decides how the tables are created.
+The `event-sourcing:schema:*` and `event-sourcing:database:*` commands are only registered
+for the `dbal` connection type.
 With `illuminate` you manage the schema with the shipped laravel migration instead.
+:::tip
+How to create the tables for both connection types is described in the
+[installation guide](installation.md#schema).
 :::
 
 ### Connection for Projections
@@ -208,6 +215,11 @@ return [
     ],
 ];
 ```
+:::warning
+With the `illuminate` connection type, the table is created by the published migration.
+If you change the table name here, you have to change it in the migration as well.
+:::
+
 ### Read Only Mode
 
 For the `illuminate_stream`, `dbal_aggregate` and `dbal_stream` store types you can activate the read only mode.

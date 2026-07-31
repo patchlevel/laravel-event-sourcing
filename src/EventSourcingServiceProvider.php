@@ -165,8 +165,6 @@ class EventSourcingServiceProvider extends ServiceProvider
         }
 
         $this->commands([
-            DatabaseCreateCommand::class,
-            DatabaseDropCommand::class,
             ShowCommand::class,
             ShowAggregateCommand::class,
             WatchCommand::class,
@@ -186,7 +184,11 @@ class EventSourcingServiceProvider extends ServiceProvider
             return;
         }
 
+        // these commands need a doctrine connection and are only registered as services
+        // for the dbal connection type. with illuminate the schema is managed by laravel migrations.
         $this->commands([
+            DatabaseCreateCommand::class,
+            DatabaseDropCommand::class,
             SchemaCreateCommand::class,
             SchemaUpdateCommand::class,
             SchemaDropCommand::class,
