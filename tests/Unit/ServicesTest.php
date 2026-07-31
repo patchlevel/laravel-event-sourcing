@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Patchlevel\LaravelEventSourcing\Tests\Unit;
 
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Connection;
 use Patchlevel\EventSourcing\Clock\SystemClock;
 use Patchlevel\EventSourcing\CommandBus\CommandBus;
@@ -217,5 +218,23 @@ final class ServicesTest extends TestCase
         $public = $this->app->get(RepositoryManager::class)->get(Profile::class);
 
         self::assertEquals($public, $service->repository);
+    }
+
+    /**
+     * Every registered console command has to be resolvable, otherwise artisan cannot even build
+     * its command list. The doctrine only commands must therefore stay unregistered here.
+     */
+    public function testConsoleCommandsAreResolvable(): void
+    {
+        $this->artisan('list')->assertSuccessful();
+
+        $commands = $this->app[Kernel::class]->all();
+
+        self::assertArrayHasKey('event-sourcing:subscription:setup', $commands);
+        self::assertArrayNotHasKey('event-sourcing:database:create', $commands);
+        self::assertArrayNotHasKey('event-sourcing:database:drop', $commands);
+        self::assertArrayNotHasKey('event-sourcing:schema:create', $commands);
+        self::assertArrayNotHasKey('event-sourcing:schema:update', $commands);
+        self::assertArrayNotHasKey('event-sourcing:schema:drop', $commands);
     }
 }

@@ -173,8 +173,6 @@ class EventSourcingServiceProvider extends ServiceProvider
         }
 
         $this->commands([
-            DatabaseCreateCommand::class,
-            DatabaseDropCommand::class,
             ShowCommand::class,
             ShowAggregateCommand::class,
             WatchCommand::class,
@@ -192,8 +190,10 @@ class EventSourcingServiceProvider extends ServiceProvider
             CacheClearCommand::class,
         ]);
 
-        if (config('event-sourcing.connection.type') !== 'dbal') {
+        if (config('event-sourcing.connection.type') === 'dbal') {
             $this->commands([
+                DatabaseCreateCommand::class,
+                DatabaseDropCommand::class,
                 SchemaCreateCommand::class,
                 SchemaUpdateCommand::class,
                 SchemaDropCommand::class,

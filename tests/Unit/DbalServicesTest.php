@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Patchlevel\LaravelEventSourcing\Tests\Unit;
 
 use Doctrine\DBAL\Connection;
+use Illuminate\Contracts\Console\Kernel;
 use Patchlevel\EventSourcing\Clock\SystemClock;
 use Patchlevel\EventSourcing\CommandBus\CommandBus;
 use Patchlevel\EventSourcing\CommandBus\InstantRetryCommandBus;
@@ -225,5 +226,21 @@ final class DbalServicesTest extends TestCase
         $public = $this->app->get(RepositoryManager::class)->get(Profile::class);
 
         self::assertEquals($public, $service->repository);
+    }
+
+    public function testConsoleCommandsAreResolvable(): void
+    {
+        $this->configureDbal();
+
+        $this->artisan('list')->assertSuccessful();
+
+        $commands = $this->app[Kernel::class]->all();
+
+        self::assertArrayHasKey('event-sourcing:subscription:setup', $commands);
+        self::assertArrayHasKey('event-sourcing:database:create', $commands);
+        self::assertArrayHasKey('event-sourcing:database:drop', $commands);
+        self::assertArrayHasKey('event-sourcing:schema:create', $commands);
+        self::assertArrayHasKey('event-sourcing:schema:update', $commands);
+        self::assertArrayHasKey('event-sourcing:schema:drop', $commands);
     }
 }
