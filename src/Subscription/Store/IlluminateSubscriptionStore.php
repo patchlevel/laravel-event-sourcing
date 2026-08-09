@@ -111,13 +111,7 @@ final class IlluminateSubscriptionStore implements LockableSubscriptionStore
 
         $subscription->updateLastSavedAt($this->clock->now());
 
-        $this->connection->statement(
-            <<<SQL
-            INSERT INTO {$this->tableName}
-                (id, group_name, run_mode, status, position, error_message, error_previous_status, error_context, retry_attempt, last_saved_at, cleanup_tasks)
-            VALUES
-                (:id, :group_name, :run_mode, :status, :position, :error_message, :error_previous_status, :error_context, :retry_attempt, :last_saved_at, :cleanup_tasks)
-SQL,
+        $this->connection->table($this->tableName)->insert(
             [
                 'id' => $subscription->id(),
                 'group_name' => $subscription->group(),
@@ -164,12 +158,9 @@ SQL,
 
     public function remove(Subscription $subscription): void
     {
-        $this->connection->statement(
-            <<<SQL
-DELETE FROM {$this->tableName} WHERE id = :id
-SQL,
-            ['id' => $subscription->id()],
-        );
+        $this->connection->table($this->tableName)
+            ->where('id', '=', $subscription->id())
+            ->delete();
     }
 
     /**

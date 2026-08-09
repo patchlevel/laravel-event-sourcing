@@ -35,7 +35,6 @@ use Patchlevel\EventSourcing\Store\LockCouldNotBeAcquired;
 use Patchlevel\EventSourcing\Store\LockCouldNotBeFreed;
 use Patchlevel\EventSourcing\Store\LockingNotImplemented;
 use Patchlevel\EventSourcing\Store\MissingDataForStorage;
-use Patchlevel\EventSourcing\Store\Stream;
 use Patchlevel\EventSourcing\Store\StreamStore;
 use Patchlevel\EventSourcing\Store\SubscriptionStore;
 use Patchlevel\EventSourcing\Store\UniqueConstraintViolation;
@@ -128,7 +127,7 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
         int|null $limit = null,
         int|null $offset = null,
         bool $backwards = false,
-    ): Stream {
+    ): StreamIlluminateStoreStream {
         $builder = $this->connection
             ->table($this->config['table_name'])
             ->select('*')
@@ -233,8 +232,8 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
             $this->connection->statement(sprintf(
                 "SELECT setval('%s', (SELECT MAX(id) FROM %s));",
-                sprintf('%s_id_seq', $this->config['table_name']),
-                $this->config['table_name'],
+                sprintf('%s_id_seq', $this->tableName()),
+                $this->tableName(),
             ));
         });
     }
@@ -314,17 +313,17 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
                 $$ LANGUAGE plpgsql;
                 SQL,
             $functionName,
-            $this->config['table_name'],
+            $this->tableName(),
         ));
 
         $this->connection->statement(sprintf(
             'DROP TRIGGER IF EXISTS notify_trigger ON %s;',
-            $this->config['table_name'],
+            $this->tableName(),
         ));
 
         $this->connection->statement(sprintf(
             'CREATE TRIGGER notify_trigger AFTER INSERT OR UPDATE ON %1$s FOR EACH ROW EXECUTE PROCEDURE %2$s();',
-            $this->config['table_name'],
+            $this->tableName(),
             $functionName,
         ));
     }
@@ -335,7 +334,7 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
             return;
         }
 
-        $this->connection->statement(sprintf('LISTEN "%s"', $this->config['table_name']));
+        $this->connection->statement(sprintf('LISTEN "%s"', $this->tableName()));
 
         if (PHP_VERSION_ID >= 80400) {
             /** @var Pgsql $nativeConnection */
@@ -535,13 +534,21 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
     private function createTriggerFunctionName(): string
     {
-        $tableConfig = explode('.', $this->config['table_name']);
+        $tableConfig = explode('.', $this->tableName());
 
         if (count($tableConfig) === 1) {
             return sprintf('notify_%s', $tableConfig[0]);
         }
 
         return sprintf('%s.notify_%s', $tableConfig[0], $tableConfig[1]);
+    }
+
+    /**
+     * The query builder prefixes the table itself, raw statements have to do it on their own.
+     */
+    private function tableName(): string
+    {
+        return $this->connection->getTablePrefix() . $this->config['table_name'];
     }
 
     private function driverName(): string
