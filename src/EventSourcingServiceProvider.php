@@ -8,6 +8,9 @@ use DateInterval;
 use DateTimeImmutable;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
+use Illuminate\Contracts\Bus\Dispatcher as BusDispatcher;
+use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
+use Illuminate\Contracts\Queue\Factory as QueueFactory;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
@@ -119,10 +122,16 @@ use Patchlevel\Hydrator\Cryptography\Store\CipherKeyStore;
 use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\Hydrator\Metadata\AttributeMetadataFactory;
 use Patchlevel\Hydrator\MetadataHydrator;
+use Patchlevel\LaravelEventSourcing\CommandBus\AggregateHandlerRegistrar;
+use Patchlevel\LaravelEventSourcing\CommandBus\IlluminateCommandBus;
 use Patchlevel\LaravelEventSourcing\Cryptography\IlluminateCipherKeyStore;
+use Patchlevel\LaravelEventSourcing\EventBus\IlluminateEventBus;
+use Patchlevel\LaravelEventSourcing\EventBus\QueueEventBus;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
+use Patchlevel\LaravelEventSourcing\QueryBus\IlluminateQueryBus;
+use Patchlevel\LaravelEventSourcing\QueryBus\QueryHandlerRegistrar;
 use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
 use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\IlluminateCleanupTaskHandler;
 use Patchlevel\LaravelEventSourcing\Subscription\StaticInMemorySubscriptionStoreFactory;
@@ -199,6 +208,7 @@ class EventSourcingServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/event-sourcing.php', 'event-sourcing');
 
+        $this->registerBusHandlers();
         $this->registerHydrator();
         $this->registerUpcaster();
         $this->registerSerializer();
@@ -222,20 +232,72 @@ class EventSourcingServiceProvider extends ServiceProvider
         $this->registerStoreMigration();
     }
 
+    /**
+     * The laravel bus needs the complete command to handler map upfront, so the handlers cannot be
+     * registered lazily when a command is dispatched. They are attached to the first resolve of the
+     * bus instead: applications that never touch it do not pay for the attribute scan, and the map
+     * is in place before the bus can be used, also for a plain `Bus::dispatch()`.
+     */
+    private function registerBusHandlers(): void
+    {
+        if (
+            config('event-sourcing.command_bus.enabled')
+            && config('event-sourcing.command_bus.type') === 'illuminate'
+            && config('event-sourcing.command_bus.register_aggregate_handlers', true) !== false
+        ) {
+            $this->app->afterResolving(
+                BusDispatcher::class,
+                function (BusDispatcher $dispatcher): void {
+                    (new AggregateHandlerRegistrar($this->app, $dispatcher))
+                        ->register($this->app->make(AggregateRootRegistry::class));
+                },
+            );
+        }
+
+        if (
+            !config('event-sourcing.query_bus.enabled')
+            || config('event-sourcing.query_bus.type') !== 'illuminate'
+            || config('event-sourcing.query_bus.register_query_handlers', true) === false
+        ) {
+            return;
+        }
+
+        $this->app->afterResolving(
+            BusDispatcher::class,
+            function (BusDispatcher $dispatcher): void {
+                (new QueryHandlerRegistrar($this->app, $dispatcher))
+                    ->register(config('event-sourcing.subscribers'));
+            },
+        );
+    }
+
     private function registerCommandBus(): void
     {
         if (!config('event-sourcing.command_bus.enabled')) {
             return;
         }
 
-        $this->app->singleton(
-            CommandBus::class,
-            static fn ($app) => new InstantRetryCommandBus(
-                new SyncCommandBus(app(AggregateHandlerProvider::class)),
+        $this->app->singleton(CommandBus::class, static function () {
+            // `mergeConfigFrom()` merges only the first level, so a config file that was published
+            // before the type option existed has no type at all and keeps the bus it had.
+            /** @var string $type */
+            $type = config('event-sourcing.command_bus.type') ?? 'default';
+
+            $commandBus = match ($type) {
+                'default' => new SyncCommandBus(app(AggregateHandlerProvider::class)),
+                'illuminate' => new IlluminateCommandBus(app(BusDispatcher::class), app('log')),
+                'custom' => self::customService('command_bus', CommandBus::class),
+                default => throw new InvalidArgumentException(
+                    sprintf('Command bus type "%s" is not supported.', $type),
+                ),
+            };
+
+            return new InstantRetryCommandBus(
+                $commandBus,
                 config('event-sourcing.command_bus.instant_retry.max_retries'),
                 config('event-sourcing.command_bus.instant_retry.exceptions'),
-            ),
-        );
+            );
+        });
     }
 
     private function registerQueryBus(): void
@@ -244,13 +306,55 @@ class EventSourcingServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->app->singleton(
-            QueryBus::class,
-            static fn ($app) => new SyncQueryBus(
-                new ServiceHandlerProvider($app->tagged('event_sourcing.subscriber')),
-                app('log'),
-            ),
-        );
+        $this->app->singleton(QueryBus::class, static function () {
+            /** @var string $type */
+            $type = config('event-sourcing.query_bus.type') ?? 'default';
+
+            return match ($type) {
+                'default' => new SyncQueryBus(
+                    new ServiceHandlerProvider(app()->tagged('event_sourcing.subscriber')),
+                    app('log'),
+                ),
+                'illuminate' => new IlluminateQueryBus(app(BusDispatcher::class), app('log')),
+                'custom' => self::customService('query_bus', QueryBus::class),
+                default => throw new InvalidArgumentException(
+                    sprintf('Query bus type "%s" is not supported.', $type),
+                ),
+            };
+        });
+    }
+
+    /**
+     * @param class-string<T> $expectedType
+     *
+     * @return T
+     *
+     * @template T of object
+     */
+    private static function customService(string $bus, string $expectedType): object
+    {
+        $service = config(sprintf('event-sourcing.%s.service', $bus));
+
+        if (!is_string($service)) {
+            throw new InvalidArgumentException(
+                sprintf('The "%s.service" option is required for the custom type.', $bus),
+            );
+        }
+
+        $instance = app($service);
+
+        if (!$instance instanceof $expectedType) {
+            throw new InvalidArgumentException(
+                sprintf(
+                    'The service "%s" configured in "%s.service" must be an instance of "%s".',
+                    $service,
+                    $bus,
+                    $expectedType,
+                ),
+            );
+        }
+
+        return $instance;
     }
 
     private function registerConnection(): void
@@ -657,11 +761,36 @@ class EventSourcingServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->singleton(EventBus::class, static function () {
-            return new DefaultEventBus(
-                app(Consumer::class),
+        // bound separately, the queued bus hands the message back to it in the worker
+        $this->app->singleton(IlluminateEventBus::class, static function () {
+            return new IlluminateEventBus(
+                app(EventDispatcher::class),
                 app('log'),
             );
+        });
+
+        $this->app->singleton(EventBus::class, static function () {
+            /** @var string $type */
+            $type = config('event-sourcing.event_bus.type') ?? 'default';
+
+            return match ($type) {
+                'default' => new DefaultEventBus(
+                    app(Consumer::class),
+                    app('log'),
+                ),
+                'illuminate' => config('event-sourcing.event_bus.queue.enabled')
+                    ? new QueueEventBus(
+                        app(QueueFactory::class),
+                        config('event-sourcing.event_bus.queue.connection'),
+                        config('event-sourcing.event_bus.queue.queue'),
+                        app('log'),
+                    )
+                    : app(IlluminateEventBus::class),
+                'custom' => self::customService('event_bus', EventBus::class),
+                default => throw new InvalidArgumentException(
+                    sprintf('Event bus type "%s" is not supported.', $type),
+                ),
+            };
         });
     }
 

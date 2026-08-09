@@ -456,16 +456,92 @@ You can enable the command bus integration to use your aggregates as command han
 
 ```php
 return [
-    'subscription' => [
-        'command_bus' => ['enabled' => true],
-    ],
+    'command_bus' => ['enabled' => true],
 ];
 ```
-For now, we *do not* provide a laravel/queue integration, but we are open for suggestions.
-
 :::note
 You can find out more about the command bus and the aggregate handlers [here](/docs/event-sourcing/latest/command-bus).
 :::
+
+### Patchlevel (Default) Command Bus
+
+By default our own synchronous command bus is used. It resolves the aggregate handlers itself
+and handles every command in the current process.
+
+```php
+return [
+    'command_bus' => [
+        'enabled' => true,
+        'type' => 'default',
+    ],
+];
+```
+
+### Laravel Command Bus
+
+You can also hand the commands over to the [laravel bus](https://laravel.com/docs/queues).
+
+```php
+return [
+    'command_bus' => [
+        'enabled' => true,
+        'type' => 'illuminate',
+    ],
+];
+```
+All `#[Handle]` methods of your aggregates are registered on the laravel bus, so you can also
+dispatch a command with `Bus::dispatch()` or the `Dispatchable` trait instead of our facade.
+
+A command that implements `Illuminate\Contracts\Queue\ShouldQueue` is pushed to the queue and
+handled by a worker, everything else is handled in the current process.
+
+```php
+namespace App\Profile\Domain\Command;
+
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Patchlevel\EventSourcing\Attribute\Id;
+
+final class ChangeName implements ShouldQueue
+{
+    public function __construct(
+        #[Id]
+        public readonly ProfileId $id,
+        public readonly string $name,
+    ) {
+    }
+}
+```
+:::warning
+A queued command is transported with the php serializer, so the command and everything it holds
+has to be serializable.
+:::
+
+If you want to map the aggregate handlers yourself, you can disable the registration.
+
+```php
+return [
+    'command_bus' => [
+        'enabled' => true,
+        'type' => 'illuminate',
+        'register_aggregate_handlers' => false,
+    ],
+];
+```
+
+### Custom Command Bus
+
+You can also provide your own command bus. The service has to implement
+`Patchlevel\EventSourcing\CommandBus\CommandBus`.
+
+```php
+return [
+    'command_bus' => [
+        'enabled' => true,
+        'type' => 'custom',
+        'service' => App\CommandBus\MyCommandBus::class,
+    ],
+];
+```
 
 ### Instant Retry
 
@@ -476,14 +552,12 @@ This will be used if you don't define a retry configuration for a specific comma
 use Patchlevel\EventSourcing\Repository\AggregateOutdated;
 
 return [
-    'subscription' => [
-        'command_bus' => [
-            'enabled' => true,
-            'instant_retry' => [
-                'default_max_retries' => 3,
-                'default_exceptions' => [
-                    AggregateOutdated::class,
-                ],
+    'command_bus' => [
+        'enabled' => true,
+        'instant_retry' => [
+            'max_retries' => 3,
+            'exceptions' => [
+                AggregateOutdated::class,
             ],
         ],
     ],
@@ -499,16 +573,69 @@ You can enable the query bus integration to use queries to retrieve data from yo
 
 ```php
 return [
-    'subscription' => [
-        'query_bus' => ['enabled' => true],
-    ],
+    'query_bus' => ['enabled' => true],
 ];
 ```
-For now, we *do not* provide a laravel/queue integration, but we are open for suggestions.
-
 :::note
 You can find out more about the query bus [here](/docs/event-sourcing/latest/query-bus).
 :::
+
+### Patchlevel (Default) Query Bus
+
+By default our own synchronous query bus is used.
+
+```php
+return [
+    'query_bus' => [
+        'enabled' => true,
+        'type' => 'default',
+    ],
+];
+```
+
+### Laravel Query Bus
+
+The laravel bus can resolve the query handlers as well. All `#[Answer]` methods of your
+subscribers are registered on it.
+
+```php
+return [
+    'query_bus' => [
+        'enabled' => true,
+        'type' => 'illuminate',
+    ],
+];
+```
+:::note
+A query always needs its result, so it is never sent to a queue, even if it implements
+`ShouldQueue`.
+:::
+
+Here too you can disable the registration and map the handlers yourself.
+
+```php
+return [
+    'query_bus' => [
+        'enabled' => true,
+        'type' => 'illuminate',
+        'register_query_handlers' => false,
+    ],
+];
+```
+
+### Custom Query Bus
+
+The service has to implement `Patchlevel\EventSourcing\QueryBus\QueryBus`.
+
+```php
+return [
+    'query_bus' => [
+        'enabled' => true,
+        'type' => 'custom',
+        'service' => App\QueryBus\MyQueryBus::class,
+    ],
+];
+```
 
 ## Event Bus
 
@@ -517,14 +644,95 @@ The subscription engine is highly recommended to use instead of the event bus.
 
 ```php
 return [
-    'subscription' => [
-        'event_bus' => ['enabled' => true],
-    ],
+    'event_bus' => ['enabled' => true],
 ];
 ```
 :::note
 Default is the patchlevel [event bus](/docs/event-sourcing/latest/event-bus).
 :::
+
+### Patchlevel (Default) Event Bus
+
+Our own event bus works best with the library, as the `#[Subscribe]` attribute is used there.
+
+```php
+return [
+    'event_bus' => [
+        'enabled' => true,
+        'type' => 'default',
+    ],
+];
+```
+
+### Laravel Event Bus
+
+You can also push the messages through the laravel event dispatcher.
+
+```php
+return [
+    'event_bus' => [
+        'enabled' => true,
+        'type' => 'illuminate',
+    ],
+];
+```
+Since the event bus was replaced, our own attributes no longer work. The message is dispatched
+under the name of the concrete event class, so you can listen for the event you care about and
+still get the message with all its headers.
+
+```php
+use Illuminate\Support\Facades\Event;
+use Patchlevel\EventSourcing\Message\Message;
+
+Event::listen(
+    ProfileCreated::class,
+    function (ProfileCreated $event, Message $message): void {
+        // ...
+    },
+);
+```
+A listener that implements `Illuminate\Contracts\Queue\ShouldQueue` is handled by a worker, like
+every other laravel listener.
+
+### Queued Event Bus
+
+Instead of handling the messages in the current process, you can push them to a queue. A worker
+picks them up and hands them to the laravel event dispatcher, so your listeners stay the same.
+
+```php
+return [
+    'event_bus' => [
+        'enabled' => true,
+        'type' => 'illuminate',
+        'queue' => [
+            'enabled' => true,
+            'connection' => 'redis',
+            'queue' => 'events',
+        ],
+    ],
+];
+```
+Saving an aggregate records all of its messages at once, and they are pushed in bulk: the whole
+batch needs a single round trip to the queue backend instead of one per message.
+
+:::warning
+The messages are transported with the php serializer, so your events and headers have to be
+serializable.
+:::
+
+### Custom Event Bus
+
+The service has to implement `Patchlevel\EventSourcing\EventBus\EventBus`.
+
+```php
+return [
+    'event_bus' => [
+        'enabled' => true,
+        'type' => 'custom',
+        'service' => App\EventBus\MyEventBus::class,
+    ],
+];
+```
 
 ## Snapshot
 

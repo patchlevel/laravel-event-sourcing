@@ -171,9 +171,20 @@ return [
     | Here you can enable or disable the command bus.
     | You can also configure the command bus regarding the retries and the handlers.
     |
+    | default: Our own synchronous command bus.
+    | illuminate: The laravel bus. Commands that implement `ShouldQueue` are handled by a worker.
+    | custom: Use a custom command bus, you need to provide a service.
+    |
+    | With the illuminate type the aggregate handlers are registered on the laravel bus,
+    | so they can also be dispatched with `Bus::dispatch()`. Disable
+    | 'register_aggregate_handlers' if you want to map them yourself.
+    |
     */
     'command_bus' => [
         'enabled' => true,
+        'type' => 'default',
+        'service' => null,
+        'register_aggregate_handlers' => true,
         'instant_retry' => [
             'max_retries' => 3,
             'exceptions' => [
@@ -189,9 +200,16 @@ return [
     |
     | Here you can enable or disable the query bus.
     |
+    | default: Our own synchronous query bus.
+    | illuminate: The laravel bus. Queries are always handled in the current process.
+    | custom: Use a custom query bus, you need to provide a service.
+    |
     */
     'query_bus' => [
         'enabled' => true,
+        'type' => 'default',
+        'service' => null,
+        'register_query_handlers' => true,
     ],
 
     /*
@@ -202,9 +220,24 @@ return [
     | Here you can enable or disable the event bus.
     | The subscription engine is highly recommended to use instead of the event bus.
     |
+    | default: Our own event bus, which uses the `#[Subscribe]` attribute.
+    | illuminate: The laravel event dispatcher. Listeners are registered for the event class
+    |   and receive the event and the message.
+    | custom: Use a custom event bus, you need to provide a service.
+    |
+    | With the illuminate type the messages can also be pushed to a laravel queue instead of
+    | being handled in the current process. All messages of one save are pushed in bulk.
+    |
     */
     'event_bus' => [
         'enabled' => false,
+        'type' => 'default',
+        'service' => null,
+        'queue' => [
+            'enabled' => false,
+            'connection' => null,
+            'queue' => null,
+        ],
     ],
 
     /*
