@@ -10,5 +10,6 @@
     <rule ref="PatchlevelCodingStandard">
         <exclude name="Generic.Files.LineLength.TooLong" />
         <exclude name="SlevomatCodingStandard.PHP.RequireExplicitAssertion.RequiredExplicitAssertion" />
+        <exclude name="Squiz.NamingConventions.ValidVariableName.MemberNotCamelCaps" />
     </rule>
 </ruleset>

@@ -14,6 +14,7 @@ return [
     |
     */
     'connection' => [
+        'type' => 'illuminate',
         'url' => env('EVENT_SOURCING_DB_URL'),
         'connection' => env(
             'EVENT_SOURCING_DB_CONNECTION',
@@ -29,47 +30,35 @@ return [
     |
     | Here you can configure the event store.
     | You can choose between different types of stores.
-    | dbal_aggregate (default): Store events in a single table with the aggregate and aggregate id.
-    | dbal_stream (new default in 4.x): Store events in a single table with a stream id.
+    | dbal_aggregate (legacy): Store events in a single table with the aggregate and aggregate id.
+    | dbal_stream: Store events in a single table with a stream id using dbal.
+    | illuminate_stream (default, based on dbal_stream): Store events in a single table with a stream id using illuminate.
     | in_memory: Store events in memory.
     | custom: Use a custom store, you need to provide a service.
     |
     */
     'store' => [
-        'type' => 'dbal_aggregate',
+        'type' => 'illuminate_stream',
         'service' => null,
         'options' => [
-            'table_name' => 'eventstore',
+            'table_name' => 'event_store',
         ],
-        'readonly' => false,
+        'read_only' => false,
+
+        /*
+        | Here you can configure the migration options for the event store.
+        | If you enable this option you can use our migration services for a smooth migration.
+        | You can specify which translators should be used for the migration process and also
+        | to which store you want to migrate.
+        | The same store types as above are available.
+        */
         'migrate_to_new_store' => [
             'enabled' => false,
+            'type' => '',
+            'service' => null,
+            'options' => [],
+            'translators' => [],
         ],
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Migrate Store
-    |--------------------------------------------------------------------------
-    |
-    | Here you can configure the migration options for the event store.
-    | If you enable this option you can use our migration services for a smooth migration.
-    | You can specify which translators should be used for the migratiop process and also
-    | to which store you want to migrate.
-    |
-    | You can choose between different types of stores:
-    | dbal_aggregate (default): Store events in a single table with the aggregate and aggregate id.
-    | dbal_stream (new default in 4.x): Store events in a single table with a stream id.
-    | in_memory: Store events in memory.
-    | custom: Use a custom store, you need to provide a service.
-    |
-    */
-    'migrate_to_new_store' => [
-        'enabled' => false,
-        'type' => '',
-        'service' => null,
-        'options' => [],
-        'translators' => [],
     ],
 
     /*
@@ -95,12 +84,14 @@ return [
     | You can change it to full async mode,
     | by setting 'subscription.run_after_aggregate_save.enabled' to false.
     | In this case you need to use the `event-sourcing:subscription:run` command.
-    | You should also set the 'subscription.catch_up'
-    | and 'subscription.throw_on_error' to false.
+    | You should also disable 'subscription.catch_up'
+    | and 'subscription.throw_on_error'.
     |
     */
     'subscription' => [
-        'throw_on_error' => true,
+        'throw_on_error' => [
+            'enabled' => true,
+        ],
         'catch_up' => [
             'enabled' => true,
             'limit' => null,
@@ -120,7 +111,7 @@ return [
         ],
         'default_retry_strategy' => 'default',
         'store' => [
-            'type' => 'dbal',
+            'type' => 'illuminate',
             'service' => null,
             'options' => [
                 'table_name' => 'subscriptions',
@@ -145,6 +136,9 @@ return [
             'retries_in_ms' => [0, 5, 50, 500],
             'detection_window' => 'PT5M',
         ],
+        'cleanup_task_handlers' => [
+            // App\Subscription\Cleanup\YourCleanupTaskHandler::class
+        ],
     ],
 
     /*
@@ -160,6 +154,10 @@ return [
     */
     'cryptography' => [
         'enabled' => false,
+        'store' => 'illuminate',
+        'options' => [
+            'table_name' => 'crypto_keys',
+        ],
         'algorithm' => 'aes256',
         'use_encrypted_field_name' => true,
         'fallback_to_field_name' => false,
