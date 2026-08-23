@@ -87,6 +87,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Cache
+    |--------------------------------------------------------------------------
+    |
+    | Events, aggregates and subscribers are described with attributes, so the
+    | paths above are scanned and the classes are reflected on every request.
+    | Here you can cache the result.
+    |
+    | Warm the cache with `php artisan event-sourcing:cache`, which also runs
+    | as part of `php artisan optimize`, and drop it again with
+    | `php artisan event-sourcing:cache:clear`.
+    |
+    | Point this at a cache store of its own: clearing flushes the whole store.
+    |
+    */
+    'cache' => [
+        'enabled' => env('EVENT_SOURCING_CACHE', false),
+        'store' => env('EVENT_SOURCING_CACHE_STORE'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Subscription
     |--------------------------------------------------------------------------
     |

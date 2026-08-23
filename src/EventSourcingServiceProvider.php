@@ -8,6 +8,7 @@ use DateInterval;
 use DateTimeImmutable;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Patchlevel\EventSourcing\Clock\FrozenClock;
@@ -48,14 +49,19 @@ use Patchlevel\EventSourcing\Metadata\AggregateRoot\AggregateRootMetadataAwareMe
 use Patchlevel\EventSourcing\Metadata\AggregateRoot\AggregateRootMetadataFactory;
 use Patchlevel\EventSourcing\Metadata\AggregateRoot\AggregateRootRegistry;
 use Patchlevel\EventSourcing\Metadata\AggregateRoot\AttributeAggregateRootRegistryFactory;
+use Patchlevel\EventSourcing\Metadata\AggregateRoot\Psr16AggregateRootMetadataFactory;
+use Patchlevel\EventSourcing\Metadata\AggregateRoot\Psr16AggregateRootRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Event\AttributeEventMetadataFactory;
 use Patchlevel\EventSourcing\Metadata\Event\AttributeEventRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Event\EventMetadataFactory;
 use Patchlevel\EventSourcing\Metadata\Event\EventRegistry;
+use Patchlevel\EventSourcing\Metadata\Event\Psr16EventMetadataFactory;
+use Patchlevel\EventSourcing\Metadata\Event\Psr16EventRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Message\AttributeMessageHeaderRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Message\MessageHeaderRegistry;
 use Patchlevel\EventSourcing\Metadata\Message\MessageHeaderRegistryFactory;
 use Patchlevel\EventSourcing\Metadata\Subscriber\AttributeSubscriberMetadataFactory;
+use Patchlevel\EventSourcing\Metadata\Subscriber\Psr16SubscriberMetadataFactory;
 use Patchlevel\EventSourcing\Metadata\Subscriber\SubscriberMetadataFactory;
 use Patchlevel\EventSourcing\QueryBus\QueryBus;
 use Patchlevel\EventSourcing\QueryBus\ServiceHandlerProvider;
@@ -114,6 +120,8 @@ use Patchlevel\Hydrator\Cryptography\Store\CipherKeyStore;
 use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\Hydrator\Metadata\AttributeMetadataFactory;
 use Patchlevel\Hydrator\MetadataHydrator;
+use Patchlevel\LaravelEventSourcing\Console\CacheClearCommand;
+use Patchlevel\LaravelEventSourcing\Console\CacheCommand;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
@@ -173,13 +181,28 @@ class EventSourcingServiceProvider extends ServiceProvider
             SubscriptionPauseCommand::class,
             SubscriptionReactivateCommand::class,
             StoreMigrateCommand::class,
+            CacheCommand::class,
+            CacheClearCommand::class,
         ]);
+
+        if (!config('event-sourcing.cache.enabled')) {
+            return;
+        }
+
+        // only hooked into `optimize` when the cache is on, a disabled cache would otherwise
+        // report the task as failed there
+        $this->optimizes(
+            optimize: 'event-sourcing:cache',
+            clear: 'event-sourcing:cache:clear',
+            key: 'event-sourcing',
+        );
     }
 
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/event-sourcing.php', 'event-sourcing');
 
+        $this->registerCache();
         $this->registerHydrator();
         $this->registerUpcaster();
         $this->registerSerializer();
@@ -201,6 +224,49 @@ class EventSourcingServiceProvider extends ServiceProvider
         // do we want to add doctrine migrations?
         // $this->registerValueResolver(); in symf bundle we have an id route resolver - this seems not easy possible
         $this->registerStoreMigration();
+    }
+
+    /**
+     * The laravel cache repository is a psr-16 cache, so it can be handed to the caching factories
+     * of the library as is. The metadata factories are decorated instead of rebound, because they
+     * are registered through the `$singletons` property, which is applied after `register()`.
+     */
+    private function registerCache(): void
+    {
+        $this->app->singleton('event_sourcing.cache', static function () {
+            /** @var string|null $store */
+            $store = config('event-sourcing.cache.store');
+
+            return Cache::store($store);
+        });
+
+        if (!config('event-sourcing.cache.enabled')) {
+            return;
+        }
+
+        $this->app->extend(
+            EventMetadataFactory::class,
+            static fn (EventMetadataFactory $factory) => new Psr16EventMetadataFactory(
+                $factory,
+                app('event_sourcing.cache'),
+            ),
+        );
+
+        $this->app->extend(
+            AggregateRootMetadataFactory::class,
+            static fn (AggregateRootMetadataFactory $factory) => new Psr16AggregateRootMetadataFactory(
+                $factory,
+                app('event_sourcing.cache'),
+            ),
+        );
+
+        $this->app->extend(
+            SubscriberMetadataFactory::class,
+            static fn (SubscriberMetadataFactory $factory) => new Psr16SubscriberMetadataFactory(
+                $factory,
+                app('event_sourcing.cache'),
+            ),
+        );
     }
 
     private function registerCommandBus(): void
@@ -378,7 +444,13 @@ class EventSourcingServiceProvider extends ServiceProvider
             /** @var list<string> $paths */
             $paths = config('event-sourcing.events');
 
-            return (new AttributeEventRegistryFactory())->create($paths);
+            $factory = new AttributeEventRegistryFactory();
+
+            if (config('event-sourcing.cache.enabled')) {
+                return (new Psr16EventRegistryFactory($factory, app('event_sourcing.cache')))->create($paths);
+            }
+
+            return $factory->create($paths);
         });
 
         $this->app->singleton(EventSerializer::class, static function () {
@@ -435,7 +507,16 @@ class EventSourcingServiceProvider extends ServiceProvider
     private function registerAggregates(): void
     {
         $this->app->singleton(AggregateRootRegistry::class, static function () {
-            return (new AttributeAggregateRootRegistryFactory())->create(config('event-sourcing.aggregates'));
+            /** @var list<string> $paths */
+            $paths = config('event-sourcing.aggregates');
+
+            $factory = new AttributeAggregateRootRegistryFactory();
+
+            if (config('event-sourcing.cache.enabled')) {
+                return (new Psr16AggregateRootRegistryFactory($factory, app('event_sourcing.cache')))->create($paths);
+            }
+
+            return $factory->create($paths);
         });
 
         $this->app->singleton(RepositoryManager::class, static function () {

@@ -87,6 +87,47 @@ return [
 If you want to learn more about custom headers, read the [library documentation](/docs/event-sourcing/latest/message#custom-headers).
 :::
 
+## Cache
+
+Aggregates, events and subscribers are described with attributes. That means the paths above are
+scanned and the classes are reflected on every request. You can cache the result.
+
+```php
+return [
+    'cache' => [
+        'enabled' => true,
+        'store' => 'event-sourcing',
+    ],
+];
+```
+`store` is the name of a laravel cache store from your `config/cache.php`. Leave it out to use the
+default store.
+
+:::warning
+Give the cache a store of its own. Clearing it flushes the whole store, because the metadata is kept
+under one key per class and those keys cannot be enumerated.
+:::
+
+Warm the cache with:
+
+```bash
+php artisan event-sourcing:cache
+```
+The command is also hooked into `php artisan optimize`, so a deployment that already runs that
+picks it up automatically. It is only added there when the cache is enabled.
+
+To drop the cache again:
+
+```bash
+php artisan event-sourcing:cache:clear
+```
+This is also run by `php artisan optimize:clear`.
+
+:::note
+The cache is only read at boot, so a deployment that changes aggregates, events or subscribers has
+to clear it. Keep it disabled while developing.
+:::
+
 ## Connection
 
 You have to specify the connection url to the event store.
