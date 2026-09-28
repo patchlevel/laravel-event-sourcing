@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Patchlevel\EventSourcing\Clock\FrozenClock;
 use Patchlevel\EventSourcing\Message\Message;
+use Patchlevel\EventSourcing\Message\Serializer\DefaultHeadersSerializer;
 use Patchlevel\EventSourcing\Serializer\DefaultEventSerializer;
 use Patchlevel\EventSourcing\Store\Criteria\AggregateIdCriterion;
 use Patchlevel\EventSourcing\Store\Criteria\ArchivedCriterion;
@@ -24,15 +25,20 @@ use Patchlevel\EventSourcing\Store\Header\IndexHeader;
 use Patchlevel\EventSourcing\Store\Header\PlayheadHeader;
 use Patchlevel\EventSourcing\Store\Header\RecordedOnHeader;
 use Patchlevel\EventSourcing\Store\Header\StreamNameHeader;
+use Patchlevel\EventSourcing\Store\LockCouldNotBeAcquired;
+use Patchlevel\EventSourcing\Store\MissingDataForStorage;
 use Patchlevel\EventSourcing\Store\StreamStore;
 use Patchlevel\EventSourcing\Store\UniqueConstraintViolation;
 use Patchlevel\EventSourcing\Store\UnsupportedCriterion;
 use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
+use Patchlevel\LaravelEventSourcing\Tests\DatabaseManager;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Events\ExternEvent;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Events\ProfileCreated;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Header\TraceHeader;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use Psr\Clock\ClockInterface;
+use RuntimeException;
 
 use function iterator_to_array;
 use function json_decode;
@@ -689,6 +695,186 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
         $this->store->count(new Criteria(new AggregateIdCriterion('1')));
     }
 
+    public function testLoadEmptyStore(): void
+    {
+        self::assertSame([], $this->loadPlayheads());
+        self::assertSame(0, $this->store->count());
+    }
+
+    public function testLoadMultipleStreams(): void
+    {
+        $this->store->save(
+            $this->message('profile-a', 1),
+            $this->message('profile-b', 2),
+            $this->message('profile-c', 3),
+        );
+
+        self::assertSame([1, 2], $this->loadPlayheads(new Criteria(new StreamCriterion('profile-a', 'profile-b'))));
+    }
+
+    public function testSaveWithoutStreamName(): void
+    {
+        $message = Message::create(new ProfileCreated(ProfileId::generate(), 'test'))
+            ->withHeader(new PlayheadHeader(1))
+            ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')));
+
+        $this->expectException(MissingDataForStorage::class);
+
+        $this->store->save($message);
+    }
+
+    public function testSaveWithCustomHeaders(): void
+    {
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            DefaultHeadersSerializer::createFromPaths([__DIR__ . '/Header']),
+            clock: $this->clock,
+        );
+
+        $store->save($this->message('profile-a', 1)->withHeader(new TraceHeader('trace-1')));
+
+        $stream = null;
+
+        try {
+            $stream = $store->load();
+            $loaded = $stream->current();
+
+            self::assertInstanceOf(Message::class, $loaded);
+            self::assertEquals(new TraceHeader('trace-1'), $loaded->header(TraceHeader::class));
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testTransactionalRollsBackOnException(): void
+    {
+        $exception = null;
+
+        try {
+            $this->store->transactional(function (): void {
+                $this->store->save($this->message('profile-a', 1));
+
+                throw new RuntimeException('error');
+            });
+        } catch (RuntimeException $e) {
+            $exception = $e;
+        }
+
+        self::assertNotNull($exception);
+        self::assertSame(0, $this->store->count());
+        self::assertSame(0, $this->connection->transactionLevel());
+    }
+
+    public function testTransactionalNested(): void
+    {
+        $this->store->transactional(function (): void {
+            $this->store->transactional(function (): void {
+                $this->store->save($this->message('profile-a', 1));
+            });
+
+            $this->store->save($this->message('profile-a', 2));
+        });
+
+        self::assertSame([1, 2], $this->loadPlayheads());
+        self::assertSame(0, $this->connection->transactionLevel());
+    }
+
+    public function testTransactionalTwice(): void
+    {
+        $this->store->transactional(function (): void {
+            $this->store->save($this->message('profile-a', 1));
+        });
+
+        $this->store->transactional(function (): void {
+            $this->store->save($this->message('profile-a', 2));
+        });
+
+        self::assertSame([1, 2], $this->loadPlayheads());
+    }
+
+    public function testSaveLockTimeout(): void
+    {
+        $this->skipIfNoLockTimeout();
+
+        $otherConnection = DatabaseManager::createConnection(forceNewConnection: true);
+
+        try {
+            self::assertSame(1, (int)$otherConnection->selectOne('SELECT GET_LOCK(?, 1) AS l', ['133742'])->l);
+
+            $store = new StreamIlluminateStore(
+                $this->connection,
+                DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+                clock: $this->clock,
+                config: ['lock_timeout' => 1],
+            );
+
+            $this->expectException(LockCouldNotBeAcquired::class);
+            $this->expectExceptionMessage('The lock with id [133742] could not be acquired with a timeout of 1');
+
+            $store->save($this->message('profile-a', 1));
+        } finally {
+            $otherConnection->disconnect();
+        }
+    }
+
+    public function testLockIsReleasedAfterException(): void
+    {
+        $this->skipIfNoLockTimeout();
+
+        try {
+            $this->store->transactional(static function (): void {
+                throw new RuntimeException('error');
+            });
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $otherConnection = DatabaseManager::createConnection(forceNewConnection: true);
+
+        try {
+            $otherStore = new StreamIlluminateStore(
+                $otherConnection,
+                DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+                clock: $this->clock,
+                config: ['lock_timeout' => 1],
+            );
+
+            $otherStore->save($this->message('profile-a', 1));
+
+            self::assertSame(1, $this->store->count());
+        } finally {
+            $otherConnection->disconnect();
+        }
+    }
+
+    public function testSubscriptionSupport(): void
+    {
+        self::assertSame($this->connection->getDriverName() === 'pgsql', $this->store->supportSubscription());
+
+        // without support both are a no-op, with support no notification arrives within the timeout
+        $this->store->setupSubscription();
+        $this->store->wait(10);
+
+        self::assertSame(0, $this->store->count());
+    }
+
+    public function testSetupSubscriptionCreatesTheNotifyTrigger(): void
+    {
+        if ($this->connection->getDriverName() !== 'pgsql') {
+            self::markTestSkipped('only postgres supports the subscription notifications');
+        }
+
+        $this->store->setupSubscription();
+        $this->store->setupSubscription();
+
+        $trigger = $this->connection->selectOne(
+            "SELECT tgname FROM pg_trigger WHERE tgname = 'notify_trigger' AND tgrelid = 'event_store'::regclass",
+        );
+
+        self::assertNotNull($trigger);
+    }
+
     /** @return list<int> */
     private function loadPlayheads(
         Criteria|null $criteria = null,
@@ -710,6 +896,27 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
             return $playheads;
         } finally {
             $stream?->close();
+        }
+    }
+
+    private function message(string $streamName, int $playhead): Message
+    {
+        return Message::create(new ProfileCreated(ProfileId::generate(), 'test'))
+            ->withHeader(new StreamNameHeader($streamName))
+            ->withHeader(new PlayheadHeader($playhead))
+            ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')));
+    }
+
+    private function skipIfNoLockTimeout(): void
+    {
+        $driver = $this->connection->getDriverName();
+
+        if ($driver === 'sqlite') {
+            self::markTestSkipped('SQLite does not support locks');
+        }
+
+        if ($driver === 'pgsql') {
+            self::markTestSkipped('PostgreSQL does lock indefinitely');
         }
     }
 }
