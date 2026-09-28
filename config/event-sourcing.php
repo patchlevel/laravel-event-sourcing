@@ -80,20 +80,32 @@ return [
     |--------------------------------------------------------------------------
     |
     | Here you can configure the subscription.
-    | The subscription engine is default in pseudo sync mode.
+    | The subscription engine is default in pseudo sync mode,
+    | which is meant for development and testing.
     | You can change it to full async mode,
     | by setting 'subscription.run_after_aggregate_save.enabled' to false.
     | In this case you need to use the `event-sourcing:subscription:run` command.
     | You should also disable 'subscription.catch_up'
     | and 'subscription.throw_on_error'.
     |
+    | These development options can be switched per environment in your .env file.
+    | In production, you should set them to false:
+    |
+    | EVENT_SOURCING_THROW_ON_ERROR=false
+    | EVENT_SOURCING_CATCH_UP=false
+    | EVENT_SOURCING_RUN_AFTER_AGGREGATE_SAVE=false
+    | EVENT_SOURCING_AUTO_SETUP=false
+    | EVENT_SOURCING_REBUILD_AFTER_FILE_CHANGE=false
+    |
+    | 'rebuild_after_file_change' is always disabled in the production environment.
+    |
     */
     'subscription' => [
         'throw_on_error' => [
-            'enabled' => true,
+            'enabled' => env('EVENT_SOURCING_THROW_ON_ERROR', true),
         ],
         'catch_up' => [
-            'enabled' => true,
+            'enabled' => env('EVENT_SOURCING_CATCH_UP', true),
             'limit' => null,
         ],
         'retry_strategies' => [
@@ -118,16 +130,16 @@ return [
             ],
         ],
         'run_after_aggregate_save' => [
-            'enabled' => true,
+            'enabled' => env('EVENT_SOURCING_RUN_AFTER_AGGREGATE_SAVE', true),
             'ids' => null,
             'groups' => null,
             'limit' => null,
         ],
         'rebuild_after_file_change' => [
-            'enabled' => true,
+            'enabled' => env('EVENT_SOURCING_REBUILD_AFTER_FILE_CHANGE', true),
         ],
         'auto_setup' => [
-            'enabled' => true,
+            'enabled' => env('EVENT_SOURCING_AUTO_SETUP', true),
             'ids' => null,
             'groups' => null,
         ],
