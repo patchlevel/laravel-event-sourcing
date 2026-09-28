@@ -8,10 +8,12 @@ use Closure;
 use DateTime;
 use DateTimeImmutable;
 use Illuminate\Database\Connection;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Patchlevel\EventSourcing\Clock\SystemClock;
 use Patchlevel\EventSourcing\Subscription\RunMode;
 use Patchlevel\EventSourcing\Subscription\Status;
 use Patchlevel\EventSourcing\Subscription\Store\LockableSubscriptionStore;
+use Patchlevel\EventSourcing\Subscription\Store\SubscriptionAlreadyExists;
 use Patchlevel\EventSourcing\Subscription\Store\SubscriptionCriteria;
 use Patchlevel\EventSourcing\Subscription\Store\SubscriptionNotFound;
 use Patchlevel\EventSourcing\Subscription\Store\TransactionCommitNotPossible;
@@ -111,21 +113,25 @@ final class IlluminateSubscriptionStore implements LockableSubscriptionStore
 
         $subscription->updateLastSavedAt($this->clock->now());
 
-        $this->connection->table($this->tableName)->insert(
-            [
-                'id' => $subscription->id(),
-                'group_name' => $subscription->group(),
-                'run_mode' => $subscription->runMode()->value,
-                'status' => $subscription->status()->value,
-                'position' => $subscription->position(),
-                'error_message' => $subscriptionError?->errorMessage,
-                'error_previous_status' => $subscriptionError?->previousStatus?->value,
-                'error_context' => $subscriptionError?->errorContext !== null ? json_encode($subscriptionError->errorContext, JSON_THROW_ON_ERROR) : null,
-                'retry_attempt' => $subscription->retryAttempt(),
-                'last_saved_at' => $subscription->lastSavedAt(),
-                'cleanup_tasks' => $subscription->cleanupTasks() !== null ? serialize($subscription->cleanupTasks()) : null,
-            ],
-        );
+        try {
+            $this->connection->table($this->tableName)->insert(
+                [
+                    'id' => $subscription->id(),
+                    'group_name' => $subscription->group(),
+                    'run_mode' => $subscription->runMode()->value,
+                    'status' => $subscription->status()->value,
+                    'position' => $subscription->position(),
+                    'error_message' => $subscriptionError?->errorMessage,
+                    'error_previous_status' => $subscriptionError?->previousStatus?->value,
+                    'error_context' => $subscriptionError?->errorContext !== null ? json_encode($subscriptionError->errorContext, JSON_THROW_ON_ERROR) : null,
+                    'retry_attempt' => $subscription->retryAttempt(),
+                    'last_saved_at' => $subscription->lastSavedAt(),
+                    'cleanup_tasks' => $subscription->cleanupTasks() !== null ? serialize($subscription->cleanupTasks()) : null,
+                ],
+            );
+        } catch (UniqueConstraintViolationException $e) {
+            throw new SubscriptionAlreadyExists($subscription->id(), $e);
+        }
     }
 
     public function update(Subscription $subscription): void
@@ -151,7 +157,17 @@ final class IlluminateSubscriptionStore implements LockableSubscriptionStore
                 ],
             );
 
-        if ($effectedRows === 0) {
+        if ($effectedRows !== 0) {
+            return;
+        }
+
+        // mysql and mariadb count the changed rows, not the matched ones.
+        // so an update without any change also affects no rows, even if the subscription exists.
+        $exists = $this->connection->table($this->tableName)
+            ->where('id', '=', $subscription->id())
+            ->exists();
+
+        if (!$exists) {
             throw new SubscriptionNotFound($subscription->id());
         }
     }
