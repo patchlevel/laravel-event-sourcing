@@ -947,7 +947,11 @@ class EventSourcingServiceProvider extends ServiceProvider
 
         $this->app->singleton(EventSourcingMiddleware::class, static function () {
             $autoSetup = config('event-sourcing.subscription.auto_setup.enabled');
-            $rebuildAfterFileChange = config('event-sourcing.subscription.rebuild_after_file_change.enabled');
+
+            // a deployment changes the modification time of every file, which would rebuild
+            // all projections within a web request. so this is never done in production.
+            $rebuildAfterFileChange = config('event-sourcing.subscription.rebuild_after_file_change.enabled')
+                && !app()->isProduction();
 
             return new EventSourcingMiddleware(
                 $autoSetup ? app(AutoSetupMiddleware::class) : null,

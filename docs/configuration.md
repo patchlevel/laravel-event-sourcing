@@ -349,6 +349,31 @@ return [
 You can use the `static_in_memory` store for testing, if you are using transactions to rollback changes.
 :::
 
+### Development Options
+
+The following options are enabled by default, so you don't need a worker or any manual steps while developing:
+[catch up](#catch-up), [throw on error](#throw-on-error), [run after aggregate save](#run-after-aggregate-save),
+[auto setup](#auto-setup) and [rebuild after file change](#rebuild-after-file-change).
+
+In production you should disable them and run the subscription engine with a worker instead.
+Each option can be switched with an environment variable, so you only need to adjust the `.env` file of your production environment:
+
+```bash
+EVENT_SOURCING_THROW_ON_ERROR=false
+EVENT_SOURCING_CATCH_UP=false
+EVENT_SOURCING_RUN_AFTER_AGGREGATE_SAVE=false
+EVENT_SOURCING_AUTO_SETUP=false
+EVENT_SOURCING_REBUILD_AFTER_FILE_CHANGE=false
+```
+:::note
+If you run `php artisan config:cache`, the environment variables are read when the cache is created.
+:::
+
+:::warning
+[Rebuild after file change](#rebuild-after-file-change) is always disabled if the application runs in the `production` environment,
+because a deployment changes the modification time of every file, which would rebuild all projections within a request.
+:::
+
 ### Catch Up
 
 If aggregates are used in the processors and new events are generated there,
@@ -424,6 +449,7 @@ This works only before each http requests and not if you use the console command
 
 If you want to rebuild the subscription engine after a file change, you can activate this option.
 This is also useful for development, so you don't have to rebuild the projections manually.
+It is always disabled in the `production` environment, see [development options](#development-options).
 
 ```php
 return [
