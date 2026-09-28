@@ -126,7 +126,11 @@ abstract class ApplicationTestCase extends Orchestra
     /** What a deployment does: migrate, then set up and boot the subscriptions. */
     private function installEventSourcing(): void
     {
-        $this->artisan('migrate:fresh', [
+        // `migrate:fresh` only wipes the database if a migrations table exists,
+        // so tables left over by other test suites would not be dropped
+        $this->artisan('db:wipe', ['--force' => true])->assertSuccessful();
+
+        $this->artisan('migrate', [
             '--path' => realpath(__DIR__ . '/../../database/migrations'),
             '--realpath' => true,
         ])->assertSuccessful();

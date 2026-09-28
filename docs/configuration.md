@@ -141,7 +141,6 @@ return [
     ],
 ];
 ```
-
 Following connection types are available:
 
 - `illuminate` *default*: uses the laravel database connection
@@ -645,7 +644,6 @@ return [
     ],
 ];
 ```
-
 The cipher keys are stored in the `crypto_keys` table.
 You can change the store implementation and the table name:
 

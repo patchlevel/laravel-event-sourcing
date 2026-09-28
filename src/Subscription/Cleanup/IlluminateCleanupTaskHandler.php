@@ -39,8 +39,8 @@ final class IlluminateCleanupTaskHandler implements CleanupTaskHandler
 
             foreach ($schemaManager->getIndexListing($task->table) as $indexName) {
                 if (strtolower($indexName) === strtolower($task->index)) {
-                    $schemaManager->table($task->table, static function (Blueprint $table) use ($task): void {
-                        $table->dropIndex($task->index);
+                    $schemaManager->table($task->table, static function (Blueprint $table) use ($indexName): void {
+                        $table->dropIndex($indexName);
                     });
                     break;
                 }
