@@ -432,12 +432,12 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
 
     private function lock(): void
     {
-        $this->hasLock = true;
-
         $driver = $this->driverName();
 
         if ($driver === 'pgsql') {
             $this->connection->select('SELECT pg_advisory_xact_lock(?)', [$this->config['lock_id']]);
+
+            $this->hasLock = true;
 
             return;
         }
@@ -465,10 +465,14 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
                 throw LockCouldNotBeAcquired::byError($this->config['lock_id']);
             }
 
+            $this->hasLock = true;
+
             return;
         }
 
         if ($driver === 'sqlite') {
+            $this->hasLock = true;
+
             return; // sql locking is not needed because of file locking
         }
 

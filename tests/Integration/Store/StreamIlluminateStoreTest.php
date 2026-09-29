@@ -39,6 +39,7 @@ use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Header\TraceHeader;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use Psr\Clock\ClockInterface;
 use RuntimeException;
+use Throwable;
 
 use function iterator_to_array;
 use function json_decode;
@@ -843,6 +844,41 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
             $otherStore->save($this->message('profile-a', 1));
 
             self::assertSame(1, $this->store->count());
+        } finally {
+            $otherConnection->disconnect();
+        }
+    }
+
+    public function testLockIsAcquiredAgainAfterTimeout(): void
+    {
+        $this->skipIfNoLockTimeout();
+
+        $otherConnection = DatabaseManager::createConnection(forceNewConnection: true);
+
+        try {
+            self::assertSame(1, (int)$otherConnection->selectOne('SELECT GET_LOCK(?, 1) AS l', ['133742'])->l);
+
+            $store = new StreamIlluminateStore(
+                $this->connection,
+                DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+                clock: $this->clock,
+                config: ['lock_timeout' => 1],
+            );
+
+            $exception = null;
+
+            try {
+                $store->save($this->message('profile-a', 1));
+            } catch (Throwable $e) {
+                $exception = $e;
+            }
+
+            self::assertInstanceOf(LockCouldNotBeAcquired::class, $exception);
+
+            // the lock is still held by the other connection, so the second save must also wait for it
+            $this->expectException(LockCouldNotBeAcquired::class);
+
+            $store->save($this->message('profile-a', 1));
         } finally {
             $otherConnection->disconnect();
         }
