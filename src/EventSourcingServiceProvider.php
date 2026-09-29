@@ -39,6 +39,7 @@ use Patchlevel\EventSourcing\Console\Command\SubscriptionTeardownCommand;
 use Patchlevel\EventSourcing\Console\Command\WatchCommand;
 use Patchlevel\EventSourcing\Console\DoctrineHelper;
 use Patchlevel\EventSourcing\Cryptography\DoctrineCipherKeyStore;
+use Patchlevel\EventSourcing\Cryptography\ExtensionDoctrineCipherKeyStore;
 use Patchlevel\EventSourcing\EventBus\AttributeListenerProvider;
 use Patchlevel\EventSourcing\EventBus\Consumer;
 use Patchlevel\EventSourcing\EventBus\DefaultConsumer;
@@ -115,6 +116,7 @@ use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\RecordedOn
 use Patchlevel\EventSourcing\Subscription\Subscriber\MetadataSubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscriber\SubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscriber\SubscriberHelper;
+use Patchlevel\Hydrator\CoreExtension;
 use Patchlevel\Hydrator\Cryptography\Cipher\Cipher;
 use Patchlevel\Hydrator\Cryptography\Cipher\CipherKeyFactory;
 use Patchlevel\Hydrator\Cryptography\Cipher\OpensslCipher;
@@ -122,11 +124,22 @@ use Patchlevel\Hydrator\Cryptography\Cipher\OpensslCipherKeyFactory;
 use Patchlevel\Hydrator\Cryptography\PayloadCryptographer;
 use Patchlevel\Hydrator\Cryptography\PersonalDataPayloadCryptographer;
 use Patchlevel\Hydrator\Cryptography\Store\CipherKeyStore;
+use Patchlevel\Hydrator\Extension;
+use Patchlevel\Hydrator\Extension\Cryptography\BaseCryptographer;
+use Patchlevel\Hydrator\Extension\Cryptography\Cryptographer;
+use Patchlevel\Hydrator\Extension\Cryptography\CryptographyExtension;
+use Patchlevel\Hydrator\Extension\Cryptography\Store\CipherKeyStore as ExtensionCipherKeyStore;
+use Patchlevel\Hydrator\Extension\Lifecycle\LifecycleExtension;
+use Patchlevel\Hydrator\Guesser\BuiltInGuesser;
+use Patchlevel\Hydrator\Guesser\ChainGuesser;
+use Patchlevel\Hydrator\Guesser\Guesser;
 use Patchlevel\Hydrator\Hydrator;
 use Patchlevel\Hydrator\Metadata\AttributeMetadataFactory;
 use Patchlevel\Hydrator\MetadataHydrator;
+use Patchlevel\Hydrator\StackHydratorBuilder;
 use Patchlevel\LaravelEventSourcing\Console\CacheClearCommand;
 use Patchlevel\LaravelEventSourcing\Console\CacheCommand;
+use Patchlevel\LaravelEventSourcing\Cryptography\ExtensionIlluminateCipherKeyStore;
 use Patchlevel\LaravelEventSourcing\Cryptography\IlluminateCipherKeyStore;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
@@ -529,12 +542,113 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerHydrator(): void
     {
-        $this->app->singleton(Hydrator::class, static function () {
-            return new MetadataHydrator(
-                new AttributeMetadataFactory(),
-                config('event-sourcing.cryptography.enabled') ? app(PayloadCryptographer::class) : null,
-            );
+        if (!config('event-sourcing.hydrator.enabled')) { // legacy MetadataHydrator
+            /** @var list<class-string<Guesser>> $guessers */
+            $guessers = config('event-sourcing.hydrator.guessers');
+
+            if ($guessers !== []) {
+                $this->app->tag($guessers, ['event_sourcing.hydrator.guesser']);
+            }
+
+            $this->app->singleton(Hydrator::class, static function () {
+                return new MetadataHydrator(
+                    new AttributeMetadataFactory(
+                        guesser: new ChainGuesser([
+                            ...app()->tagged('event_sourcing.hydrator.guesser'),
+                            new BuiltInGuesser(),
+                        ]),
+                    ),
+                    config('event-sourcing.cryptography.enabled') ? app(PayloadCryptographer::class) : null,
+                );
+            });
+
+            return;
+        }
+
+        $this->app->singleton(CoreExtension::class);
+        $this->app->tag(CoreExtension::class, ['event_sourcing.hydrator.extension']);
+
+        if (config('event-sourcing.hydrator.cryptography.enabled')) {
+            $this->registerHydratorCryptography();
+        }
+
+        if (config('event-sourcing.hydrator.lifecycle.enabled')) {
+            $this->app->singleton(LifecycleExtension::class);
+            $this->app->tag(LifecycleExtension::class, ['event_sourcing.hydrator.extension']);
+        }
+
+        /** @var list<class-string<Extension>> $extensions */
+        $extensions = config('event-sourcing.hydrator.extensions');
+
+        if ($extensions !== []) {
+            $this->app->tag($extensions, ['event_sourcing.hydrator.extension']);
+        }
+
+        $this->app->singleton(StackHydratorBuilder::class, static function () {
+            $builder = (new StackHydratorBuilder())
+                ->enableDefaultLazy(config('event-sourcing.hydrator.default_lazy'));
+
+            if (config('event-sourcing.cache.enabled')) {
+                $builder->setCache(app('event_sourcing.cache'));
+            }
+
+            /** @var Extension $extension */
+            foreach (app()->tagged('event_sourcing.hydrator.extension') as $extension) {
+                $builder->useExtension($extension);
+            }
+
+            return $builder;
         });
+
+        $this->app->singleton(Hydrator::class, static fn () => app(StackHydratorBuilder::class)->build());
+    }
+
+    private function registerHydratorCryptography(): void
+    {
+        /** @var string $tableName */
+        $tableName = config('event-sourcing.hydrator.cryptography.options.table_name') ?? 'cryptography_keys';
+
+        $storeType = config('event-sourcing.hydrator.cryptography.store');
+
+        if ($storeType === 'dbal') {
+            $storeCallback = static fn () => new ExtensionDoctrineCipherKeyStore(
+                app('event_sourcing.connection'),
+                $tableName,
+            );
+        } elseif ($storeType === 'illuminate') {
+            $storeCallback = static fn () => new ExtensionIlluminateCipherKeyStore(
+                app('event_sourcing.connection'),
+                $tableName,
+            );
+        } else {
+            throw new InvalidArgumentException('Hydrator cryptography store type is unknown.');
+        }
+
+        $this->app->singleton(ExtensionCipherKeyStore::class, $storeCallback);
+
+        if ($storeType === 'dbal') {
+            $this->app->tag(ExtensionCipherKeyStore::class, ['event_sourcing.doctrine_schema_configurator']);
+        }
+
+        $this->app->singleton(
+            Cryptographer::class,
+            static fn () => BaseCryptographer::createWithOpenssl(
+                app(ExtensionCipherKeyStore::class),
+                config('event-sourcing.hydrator.cryptography.algorithm'),
+            ),
+        );
+
+        // the legacy cryptographer keeps data readable that was encrypted before the switch
+        $this->app->singleton(
+            CryptographyExtension::class,
+            static fn () => new CryptographyExtension(
+                app(Cryptographer::class),
+                config('event-sourcing.cryptography.enabled') ? app(PayloadCryptographer::class) : null,
+                true,
+            ),
+        );
+
+        $this->app->tag(CryptographyExtension::class, ['event_sourcing.hydrator.extension']);
     }
 
     private function registerClock(): void
