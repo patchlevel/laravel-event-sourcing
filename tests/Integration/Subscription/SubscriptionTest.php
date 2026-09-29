@@ -33,8 +33,8 @@ use Patchlevel\EventSourcing\Subscription\Subscriber\ArgumentResolver\LookupReso
 use Patchlevel\EventSourcing\Subscription\Subscriber\MetadataSubscriberAccessorRepository;
 use Patchlevel\EventSourcing\Subscription\Subscription;
 use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropTableTask;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\IlluminateCleanupTaskHandler;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\DropTableTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\IlluminateCleanupTaskHandler;
 use Patchlevel\LaravelEventSourcing\Subscription\Store\IlluminateSubscriptionStore;
 use Patchlevel\LaravelEventSourcing\Tests\DatabaseManager;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;

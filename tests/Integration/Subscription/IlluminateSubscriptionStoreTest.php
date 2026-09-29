@@ -16,13 +16,14 @@ use Patchlevel\EventSourcing\Subscription\Store\SubscriptionAlreadyExists;
 use Patchlevel\EventSourcing\Subscription\Store\SubscriptionCriteria;
 use Patchlevel\EventSourcing\Subscription\Store\SubscriptionNotFound;
 use Patchlevel\EventSourcing\Subscription\Subscription;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropIndexTask;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropTableTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\DropIndexTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\DropTableTask;
 use Patchlevel\LaravelEventSourcing\Subscription\Store\IlluminateSubscriptionStore;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
+use Throwable;
 
 use function array_map;
 use function str_repeat;
@@ -528,6 +529,29 @@ final class IlluminateSubscriptionStoreTest extends IntegrationTestCase
         self::assertSame('error', $exception->getMessage());
         self::assertSame(0, $this->connection->transactionLevel());
         self::assertSame(42, $this->store->get('foo')->position());
+    }
+
+    public function testInLockDoesNotWrapExceptionsFromAfterCommitCallbacks(): void
+    {
+        $exception = null;
+
+        try {
+            $this->store->inLock(function (): void {
+                $this->store->add(new Subscription('foo'));
+
+                $this->connection->afterCommit(static function (): void {
+                    throw new LogicException('after commit');
+                });
+            });
+        } catch (Throwable $e) {
+            $exception = $e;
+        }
+
+        // the commit itself worked, so the exception must not be reported as TransactionCommitNotPossible
+        self::assertInstanceOf(LogicException::class, $exception);
+        self::assertSame('after commit', $exception->getMessage());
+        self::assertSame(0, $this->connection->transactionLevel());
+        self::assertSame('foo', $this->store->get('foo')->id());
     }
 
     public function testCustomTableName(): void

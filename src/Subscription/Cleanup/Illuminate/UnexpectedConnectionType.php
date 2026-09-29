@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Patchlevel\LaravelEventSourcing\Subscription\Cleanup;
+namespace Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate;
 
 use RuntimeException;
 

@@ -19,8 +19,8 @@ use Patchlevel\EventSourcing\Subscription\Store\SubscriptionNotFound;
 use Patchlevel\EventSourcing\Subscription\Store\TransactionCommitNotPossible;
 use Patchlevel\EventSourcing\Subscription\Subscription;
 use Patchlevel\EventSourcing\Subscription\SubscriptionError;
+use PDOException;
 use Psr\Clock\ClockInterface;
-use Throwable;
 
 use function array_map;
 use function is_array;
@@ -197,7 +197,7 @@ final class IlluminateSubscriptionStore implements LockableSubscriptionStore
         } finally {
             try {
                 $this->connection->commit();
-            } catch (Throwable $e) {
+            } catch (PDOException $e) {
                 throw new TransactionCommitNotPossible($e);
             }
         }

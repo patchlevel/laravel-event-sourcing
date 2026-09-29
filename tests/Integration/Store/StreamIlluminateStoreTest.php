@@ -394,6 +394,47 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
         self::assertEquals(10000, $result);
     }
 
+    public function testSaveWithIndexAndExactlyOneFullBatch(): void
+    {
+        // with keep_index a batch holds floor(65535 / 9) messages, the last batch is sent inside the loop
+        $batchSize = 7281;
+        $profileId = ProfileId::generate();
+
+        $messages = [];
+
+        for ($i = 1; $i <= $batchSize; $i++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader($i))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')))
+                ->withHeader(new IndexHeader($i));
+        }
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            clock: $this->clock,
+            config: ['keep_index' => true],
+        );
+
+        $store->save(...$messages);
+
+        // without keep_index the id comes from the sequence, which has to be moved to the last id
+        $this->store->save($this->message('profile-b', 1));
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load(new Criteria(new StreamCriterion('profile-b')));
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(1, $messages);
+            self::assertSame($batchSize + 1, $messages[0]->header(IndexHeader::class)->index);
+        } finally {
+            $stream?->close();
+        }
+    }
+
     public function testLoad(): void
     {
         $profileId = ProfileId::generate();
@@ -538,7 +579,7 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
         self::assertEquals(['foo'], $streams);
     }
 
-    public function testRecordedOnKeepsTheWallClockTime(): void
+    public function testRecordedOnWithOtherTimezone(): void
     {
         $profileId = ProfileId::generate();
         $recordedOn = new DateTimeImmutable('2020-01-01 10:00:00', new DateTimeZone('America/New_York'));
@@ -559,14 +600,21 @@ final class StreamIlluminateStoreTest extends IntegrationTestCase
             self::assertCount(1, $messages);
 
             $loadedRecordedOn = $messages[0]->header(RecordedOnHeader::class)->recordedOn;
-
-            self::assertSame(
-                $recordedOn->format('Y-m-d H:i:s'),
-                $loadedRecordedOn->format('Y-m-d H:i:s'),
-            );
         } finally {
             $stream?->close();
         }
+
+        // like the doctrine dbal store: postgres keeps the point in time, the others only the wall clock time
+        if ($this->connection->getDriverName() === 'pgsql') {
+            self::assertSame($recordedOn->getTimestamp(), $loadedRecordedOn->getTimestamp());
+
+            return;
+        }
+
+        self::assertSame(
+            $recordedOn->format('Y-m-d H:i:s'),
+            $loadedRecordedOn->format('Y-m-d H:i:s'),
+        );
     }
 
     public function testCount(): void

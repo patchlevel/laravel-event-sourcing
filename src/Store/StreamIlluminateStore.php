@@ -66,7 +66,7 @@ use const PHP_VERSION_ID;
  *      event_id: string,
  *      event_name: string,
  *      event_payload: string,
- *      recorded_on: DateTimeImmutable,
+ *      recorded_on: DateTimeImmutable|string,
  *      archived: bool,
  *      custom_headers: string,
  *      id?: int
@@ -197,9 +197,11 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
                     'event_id' => $eventId,
                     'event_name' => $data->name,
                     'event_payload' => $data->payload,
-                    'recorded_on' => $message->hasHeader(RecordedOnHeader::class)
-                        ? $message->header(RecordedOnHeader::class)->recordedOn
-                        : $this->clock->now(),
+                    'recorded_on' => $this->formatRecordedOn(
+                        $message->hasHeader(RecordedOnHeader::class)
+                            ? $message->header(RecordedOnHeader::class)->recordedOn
+                            : $this->clock->now(),
+                    ),
                     'archived' => $message->hasHeader(ArchivedHeader::class),
                     'custom_headers' => $this->headersSerializer->serialize($this->getCustomHeaders($message)),
                 ];
@@ -347,6 +349,19 @@ final class StreamIlluminateStore implements StreamStore, SubscriptionStore
         /** @var PDO $nativeConnection */
         $nativeConnection = $this->connection->getPdo();
         $nativeConnection->pgsqlGetNotify(PDO::FETCH_ASSOC, $timeoutMilliseconds);
+    }
+
+    /**
+     * Illuminate formats dates without their offset. PostgreSQL stores the column as timestamptz,
+     * so the offset is passed along to keep the point in time, like the doctrine dbal store does.
+     */
+    private function formatRecordedOn(DateTimeImmutable $recordedOn): DateTimeImmutable|string
+    {
+        if ($this->driverName() === 'pgsql') {
+            return $recordedOn->format('Y-m-d H:i:sO');
+        }
+
+        return $recordedOn;
     }
 
     /** @return list<object> */

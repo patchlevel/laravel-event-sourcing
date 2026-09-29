@@ -7,10 +7,10 @@ namespace Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Cleanup
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 use Patchlevel\EventSourcing\Subscription\Cleanup\CleanupTaskNotSupported;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\ConnectionNameNotSupported;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropIndexTask;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropTableTask;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\IlluminateCleanupTaskHandler;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\ConnectionNameNotSupported;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\DropIndexTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\DropTableTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\IlluminateCleanupTaskHandler;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use stdClass;

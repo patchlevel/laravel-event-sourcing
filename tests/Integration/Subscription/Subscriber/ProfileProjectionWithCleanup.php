@@ -12,7 +12,7 @@ use Patchlevel\EventSourcing\Attribute\Projector;
 use Patchlevel\EventSourcing\Attribute\Setup;
 use Patchlevel\EventSourcing\Attribute\Subscribe;
 use Patchlevel\EventSourcing\Subscription\Subscriber\BatchableSubscriber;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\DropTableTask;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\DropTableTask;
 use Patchlevel\LaravelEventSourcing\Tests\Integration\Subscription\Events\ProfileCreated;
 
 #[Projector('profile_1')]

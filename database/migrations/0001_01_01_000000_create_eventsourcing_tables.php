@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('event_id', 255);
             $table->string('event_name', 255);
             $table->json('event_payload');
-            $table->dateTime('recorded_on');
+            $table->dateTimeTz('recorded_on');
             $table->boolean('archived')->default(false);
             $table->json('custom_headers');
 
@@ -34,7 +34,7 @@ return new class extends Migration
             $table->string('error_previous_status', 32)->nullable();
             $table->json('error_context')->nullable();
             $table->integer('retry_attempt');
-            $table->dateTime('last_saved_at');
+            $table->dateTimeTz('last_saved_at');
             $table->text('cleanup_tasks')->nullable();
             $table->index('group_name');
             $table->index('status');

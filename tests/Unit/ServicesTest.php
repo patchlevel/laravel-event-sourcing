@@ -81,7 +81,7 @@ use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
 use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
-use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\IlluminateCleanupTaskHandler;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\IlluminateCleanupTaskHandler;
 use Patchlevel\LaravelEventSourcing\Subscription\Store\IlluminateSubscriptionStore;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\Profile;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\ProfileProcessor;
