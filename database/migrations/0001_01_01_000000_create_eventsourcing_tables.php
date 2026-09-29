@@ -48,6 +48,17 @@ return new class extends Migration
             $table->string('crypto_iv', 255);
             $table->primary('subject_id');
         });
+
+        // needed by the cryptography extension of the hydrator (config: hydrator.cryptography)
+        // Schema::create('cryptography_keys', function (Blueprint $table) {
+        //     $table->string('id', 255);
+        //     $table->string('subject_id', 255);
+        //     $table->string('crypto_key', 255);
+        //     $table->string('crypto_method', 255);
+        //     $table->dateTimeTz('created_at');
+        //     $table->primary('id');
+        //     $table->index('subject_id');
+        // });
     }
 
     public function down(): void
@@ -55,5 +66,6 @@ return new class extends Migration
         Schema::dropIfExists('event_store');
         Schema::dropIfExists('subscriptions');
         Schema::dropIfExists('crypto_keys');
+        // Schema::dropIfExists('cryptography_keys');
     }
 };

@@ -198,6 +198,46 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Hydrator
+    |--------------------------------------------------------------------------
+    |
+    | Here you can enable the extension based hydrator, which replaces the
+    | legacy metadata hydrator. It is built from extensions: cryptography and
+    | lifecycle are shipped and can be enabled below, your own extensions are
+    | listed under "extensions" or tagged with "event_sourcing.hydrator.extension".
+    |
+    | The cryptography extension replaces the cryptography above. If both are
+    | enabled, data encrypted by the legacy cryptography stays readable.
+    |
+    | Your own guessers are only used by the legacy metadata hydrator, list them
+    | under "guessers" or tag them with "event_sourcing.hydrator.guesser".
+    | The extension based hydrator gets its guessers from extensions.
+    |
+    */
+    'hydrator' => [
+        'enabled' => false,
+        'default_lazy' => false,
+        'extensions' => [
+            // App\Hydrator\YourExtension::class
+        ],
+        'guessers' => [
+            // App\Hydrator\YourGuesser::class
+        ],
+        'cryptography' => [
+            'enabled' => false,
+            'store' => 'illuminate',
+            'options' => [
+                'table_name' => 'cryptography_keys',
+            ],
+            'algorithm' => 'aes-128-gcm',
+        ],
+        'lifecycle' => [
+            'enabled' => false,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | CommandBus
     |--------------------------------------------------------------------------
     |
