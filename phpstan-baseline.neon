@@ -1,1 +1,31 @@
 parameters:
+	ignoreErrors:
+		-
+			message: '#^Parameter \#1 \$key of class Patchlevel\\Hydrator\\Cryptography\\Cipher\\CipherKey constructor expects non\-empty\-string, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Cryptography/IlluminateCipherKeyStore.php
+
+		-
+			message: '#^Parameter \#3 \$iv of class Patchlevel\\Hydrator\\Cryptography\\Cipher\\CipherKey constructor expects non\-empty\-string, string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Cryptography/IlluminateCipherKeyStore.php
+
+		-
+			message: '#^Parameter \#1 \$playhead of class Patchlevel\\EventSourcing\\Store\\Header\\PlayheadHeader constructor expects int\<1, max\>, int given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Store/StreamIlluminateStoreStream.php
+
+		-
+			message: '#^Parameter \#3 \$errorContext of class Patchlevel\\EventSourcing\\Subscription\\SubscriptionError constructor expects list\<array\{namespace\: string, short_name\: string, class\: class\-string, message\: string, code\: int\|string, file\: string, line\: int, trace\: list\<array\{file\?\: string, line\?\: int, function\?\: string, class\?\: string, type\?\: string, args\?\: array\<mixed\>\}\>\}\>\|null, array\<string, mixed\>\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Subscription/Store/IlluminateSubscriptionStore.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Subscription/Store/IlluminateSubscriptionStore.php

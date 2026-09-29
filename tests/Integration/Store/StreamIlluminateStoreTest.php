@@ -1,0 +1,1006 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Patchlevel\LaravelEventSourcing\Tests\Integration\Store;
+
+use DateTimeImmutable;
+use DateTimeZone;
+use Patchlevel\EventSourcing\Clock\FrozenClock;
+use Patchlevel\EventSourcing\Message\Message;
+use Patchlevel\EventSourcing\Message\Serializer\DefaultHeadersSerializer;
+use Patchlevel\EventSourcing\Serializer\DefaultEventSerializer;
+use Patchlevel\EventSourcing\Store\Criteria\AggregateIdCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\ArchivedCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\Criteria;
+use Patchlevel\EventSourcing\Store\Criteria\EventIdCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\EventsCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\FromIndexCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\FromPlayheadCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\StreamCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\ToIndexCriterion;
+use Patchlevel\EventSourcing\Store\Criteria\ToPlayheadCriterion;
+use Patchlevel\EventSourcing\Store\Header\EventIdHeader;
+use Patchlevel\EventSourcing\Store\Header\IndexHeader;
+use Patchlevel\EventSourcing\Store\Header\PlayheadHeader;
+use Patchlevel\EventSourcing\Store\Header\RecordedOnHeader;
+use Patchlevel\EventSourcing\Store\Header\StreamNameHeader;
+use Patchlevel\EventSourcing\Store\LockCouldNotBeAcquired;
+use Patchlevel\EventSourcing\Store\MissingDataForStorage;
+use Patchlevel\EventSourcing\Store\StreamStore;
+use Patchlevel\EventSourcing\Store\UniqueConstraintViolation;
+use Patchlevel\EventSourcing\Store\UnsupportedCriterion;
+use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
+use Patchlevel\LaravelEventSourcing\Tests\DatabaseManager;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\IntegrationTestCase;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Events\ExternEvent;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Events\ProfileCreated;
+use Patchlevel\LaravelEventSourcing\Tests\Integration\Store\Header\TraceHeader;
+use PHPUnit\Framework\Attributes\CoversNothing;
+use Psr\Clock\ClockInterface;
+use RuntimeException;
+use Throwable;
+
+use function iterator_to_array;
+use function json_decode;
+use function sprintf;
+
+#[CoversNothing]
+final class StreamIlluminateStoreTest extends IntegrationTestCase
+{
+    private StreamStore $store;
+
+    private ClockInterface $clock;
+
+    public function setUp(): void
+    {
+        parent::setUp();
+
+        $this->clock = new FrozenClock(new DateTimeImmutable('2020-01-01 00:00:00'));
+        $this->store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            clock: $this->clock,
+        );
+    }
+
+    public function testSave(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-02 00:00:00'))),
+        ];
+
+        $this->store->save(...$messages);
+
+        /** @var list<object> $result */
+        $result = $this->connection->select('SELECT * FROM event_store');
+
+        self::assertCount(2, $result);
+
+        $result1 = $result[0];
+
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result1->stream);
+        self::assertEquals('1', $result1->playhead);
+        self::assertStringContainsString('2020-01-01 00:00:00', $result1->recorded_on);
+        self::assertEquals('profile.created', $result1->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result1->event_payload, true),
+        );
+
+        $result2 = $result[1];
+
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result2->stream);
+        self::assertEquals('2', $result2->playhead);
+        self::assertStringContainsString('2020-01-02 00:00:00', $result2->recorded_on);
+        self::assertEquals('profile.created', $result2->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result2->event_payload, true),
+        );
+    }
+
+    public function testSaveWithIndex(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')))
+                ->withHeader(new IndexHeader(1)),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-02 00:00:00')))
+                ->withHeader(new IndexHeader(42)),
+        ];
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            clock: $this->clock,
+            config: ['keep_index' => true],
+        );
+
+        $store->save(...$messages);
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            clock: $this->clock,
+        );
+
+        $store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(3))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-02 00:00:00'))),
+        );
+
+        /** @var list<array<string, string>> $result */
+        $result = $this->connection->select('SELECT * FROM event_store');
+
+        self::assertCount(3, $result);
+
+        $result1 = $result[0];
+
+        self::assertEquals(1, $result1->id);
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result1->stream);
+        self::assertEquals('1', $result1->playhead);
+        self::assertStringContainsString('2020-01-01 00:00:00', $result1->recorded_on);
+        self::assertEquals('profile.created', $result1->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result1->event_payload, true),
+        );
+
+        $result2 = $result[1];
+
+        self::assertEquals(42, $result2->id);
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result2->stream);
+        self::assertEquals('2', $result2->playhead);
+        self::assertStringContainsString('2020-01-02 00:00:00', $result2->recorded_on);
+        self::assertEquals('profile.created', $result2->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result2->event_payload, true),
+        );
+
+        $result3 = $result[2];
+
+        self::assertEquals(43, $result3->id);
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result3->stream);
+        self::assertEquals('3', $result3->playhead);
+        self::assertStringContainsString('2020-01-02 00:00:00', $result3->recorded_on);
+        self::assertEquals('profile.created', $result3->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result3->event_payload, true),
+        );
+    }
+
+    public function testSaveWithOnlyStreamName(): void
+    {
+        $messages = [
+            Message::create(new ExternEvent('test 1'))
+                ->withHeader(new StreamNameHeader('extern')),
+            Message::create(new ExternEvent('test 2'))
+                ->withHeader(new StreamNameHeader('extern')),
+        ];
+
+        $this->store->save(...$messages);
+
+        /** @var list<array<string, string>> $result */
+        $result = $this->connection->select('SELECT * FROM event_store');
+
+        self::assertCount(2, $result);
+
+        $result1 = $result[0];
+
+        self::assertEquals('extern', $result1->stream);
+        self::assertEquals(null, $result1->playhead);
+        self::assertStringContainsString('2020-01-01 00:00:00', $result1->recorded_on);
+        self::assertEquals('extern', $result1->event_name);
+        self::assertEquals(
+            ['message' => 'test 1'],
+            json_decode($result1->event_payload, true),
+        );
+
+        $result2 = $result[1];
+
+        self::assertEquals('extern', $result2->stream);
+        self::assertEquals(null, $result2->playhead);
+        self::assertStringContainsString('2020-01-01 00:00:00', $result2->recorded_on);
+        self::assertEquals('extern', $result2->event_name);
+        self::assertEquals(
+            ['message' => 'test 2'],
+            json_decode($result2->event_payload, true),
+        );
+    }
+
+    public function testSaveWithTransactional(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-02 00:00:00'))),
+        ];
+
+        $this->store->transactional(function () use ($messages): void {
+            $this->store->save(...$messages);
+        });
+
+        /** @var list<array<string, string>> $result */
+        $result = $this->connection->select('SELECT * FROM event_store');
+
+        self::assertCount(2, $result);
+
+        $result1 = $result[0];
+
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result1->stream);
+        self::assertEquals('1', $result1->playhead);
+        self::assertStringContainsString('2020-01-01 00:00:00', $result1->recorded_on);
+        self::assertEquals('profile.created', $result1->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result1->event_payload, true),
+        );
+
+        $result2 = $result[1];
+
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result2->stream);
+        self::assertEquals('2', $result2->playhead);
+        self::assertStringContainsString('2020-01-02 00:00:00', $result2->recorded_on);
+        self::assertEquals('profile.created', $result2->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result2->event_payload, true),
+        );
+    }
+
+    public function testArchive(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new EventIdHeader('1'))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2))
+                ->withHeader(new EventIdHeader('2'))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-02 00:00:00'))),
+        ];
+
+        $this->store->save(...$messages);
+        $this->store->archive(
+            new Criteria(
+                new StreamCriterion(sprintf('profile-%s', $profileId->toString())),
+                new ToPlayheadCriterion(2),
+            ),
+        );
+
+        /** @var list<array<string, string>> $result */
+        $result = $this->connection->select('SELECT * FROM event_store ORDER BY id');
+
+        self::assertCount(2, $result);
+
+        $result1 = $result[0];
+
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result1->stream);
+        self::assertEquals('1', $result1->playhead);
+        self::assertStringContainsString('2020-01-01 00:00:00', $result1->recorded_on);
+        self::assertEquals('profile.created', $result1->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result1->event_payload, true),
+        );
+
+        self::assertEquals('1', $result1->archived);
+
+        $result2 = $result[1];
+
+        self::assertEquals(sprintf('profile-%s', $profileId->toString()), $result2->stream);
+        self::assertEquals('2', $result2->playhead);
+        self::assertStringContainsString('2020-01-02 00:00:00', $result2->recorded_on);
+        self::assertEquals('profile.created', $result2->event_name);
+        self::assertEquals(
+            ['profileId' => $profileId->toString(), 'name' => 'test'],
+            json_decode($result2->event_payload, true),
+        );
+
+        self::assertEquals('0', $result2->archived);
+    }
+
+    public function testUniqueStreamNameAndPlayheadConstraint(): void
+    {
+        $this->expectException(UniqueConstraintViolation::class);
+
+        $profileId = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+        ];
+
+        $this->store->save(...$messages);
+    }
+
+    public function testUniqueEventIdConstraint(): void
+    {
+        $this->expectException(UniqueConstraintViolation::class);
+
+        $profileId = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new EventIdHeader('1'))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new EventIdHeader('1'))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+        ];
+
+        $this->store->save(...$messages);
+    }
+
+    public function testSave10000Messages(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $messages = [];
+
+        for ($i = 1; $i <= 10000; $i++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader($i))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')));
+        }
+
+        $this->store->save(...$messages);
+
+        /** @var int $result */
+        $result = $this->connection->scalar('SELECT COUNT(*) FROM event_store');
+
+        self::assertEquals(10000, $result);
+    }
+
+    public function testSaveWithIndexAndExactlyOneFullBatch(): void
+    {
+        // with keep_index a batch holds floor(65535 / 9) messages, the last batch is sent inside the loop
+        $batchSize = 7281;
+        $profileId = ProfileId::generate();
+
+        $messages = [];
+
+        for ($i = 1; $i <= $batchSize; $i++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader($i))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')))
+                ->withHeader(new IndexHeader($i));
+        }
+
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            clock: $this->clock,
+            config: ['keep_index' => true],
+        );
+
+        $store->save(...$messages);
+
+        // without keep_index the id comes from the sequence, which has to be moved to the last id
+        $this->store->save($this->message('profile-b', 1));
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load(new Criteria(new StreamCriterion('profile-b')));
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(1, $messages);
+            self::assertSame($batchSize + 1, $messages[0]->header(IndexHeader::class)->index);
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testLoad(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $message = Message::create(new ProfileCreated($profileId, 'test'))
+            ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+            ->withHeader(new PlayheadHeader(1))
+            ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')));
+
+        $this->store->save($message);
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load();
+
+            self::assertSame(1, $stream->index());
+            self::assertSame(0, $stream->position());
+
+            $loadedMessage = $stream->current();
+
+            self::assertInstanceOf(Message::class, $loadedMessage);
+            self::assertNotSame($message, $loadedMessage);
+            self::assertEquals($message->event(), $loadedMessage->event());
+            self::assertEquals(
+                $message->header(StreamNameHeader::class)->streamName,
+                $loadedMessage->header(StreamNameHeader::class)->streamName,
+            );
+            self::assertEquals(
+                $message->header(PlayheadHeader::class)->playhead,
+                $loadedMessage->header(PlayheadHeader::class)->playhead,
+            );
+            self::assertEquals(
+                $message->header(RecordedOnHeader::class)->recordedOn,
+                $loadedMessage->header(RecordedOnHeader::class)->recordedOn,
+            );
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testLoadWithWildcard(): void
+    {
+        $profileId1 = ProfileId::generate();
+        $profileId2 = ProfileId::generate();
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId1, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId1->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId2, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId2->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        ];
+
+        $this->store->save(...$messages);
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load(new Criteria(new StreamCriterion('profile-*')));
+
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(2, $messages);
+        } finally {
+            $stream?->close();
+        }
+
+        try {
+            $stream = $this->store->load(new Criteria(new StreamCriterion('*-*')));
+
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(2, $messages);
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testStreams(): void
+    {
+        $profileId = ProfileId::fromString('0190e47e-77e9-7b90-bf62-08bbf0ab9b4b');
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        ];
+
+        $this->store->save(...$messages);
+
+        $streams = $this->store->streams();
+
+        self::assertEquals([
+            'foo',
+            'profile-0190e47e-77e9-7b90-bf62-08bbf0ab9b4b',
+        ], $streams);
+    }
+
+    public function testRemove(): void
+    {
+        $profileId = ProfileId::fromString('0190e47e-77e9-7b90-bf62-08bbf0ab9b4b');
+
+        $messages = [
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2))
+                ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00'))),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        ];
+
+        $this->store->save(...$messages);
+
+        $streams = $this->store->streams();
+
+        self::assertEquals([
+            'foo',
+            'profile-0190e47e-77e9-7b90-bf62-08bbf0ab9b4b',
+        ], $streams);
+
+        $this->store->remove(new Criteria(new StreamCriterion('profile-*')));
+
+        $streams = $this->store->streams();
+
+        self::assertEquals(['foo'], $streams);
+    }
+
+    public function testRecordedOnWithOtherTimezone(): void
+    {
+        $profileId = ProfileId::generate();
+        $recordedOn = new DateTimeImmutable('2020-01-01 10:00:00', new DateTimeZone('America/New_York'));
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new RecordedOnHeader($recordedOn)),
+        );
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load();
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(1, $messages);
+
+            $loadedRecordedOn = $messages[0]->header(RecordedOnHeader::class)->recordedOn;
+        } finally {
+            $stream?->close();
+        }
+
+        // like the doctrine dbal store: postgres keeps the point in time, the others only the wall clock time
+        if ($this->connection->getDriverName() === 'pgsql') {
+            self::assertSame($recordedOn->getTimestamp(), $loadedRecordedOn->getTimestamp());
+
+            return;
+        }
+
+        self::assertSame(
+            $recordedOn->format('Y-m-d H:i:s'),
+            $loadedRecordedOn->format('Y-m-d H:i:s'),
+        );
+    }
+
+    public function testCount(): void
+    {
+        $profileId = ProfileId::generate();
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1)),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(2)),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        );
+
+        self::assertSame(3, $this->store->count());
+        self::assertSame(2, $this->store->count(new Criteria(new StreamCriterion('profile-*'))));
+        self::assertSame(1, $this->store->count(new Criteria(new StreamCriterion('foo'))));
+    }
+
+    public function testLoadWithLimitOffsetAndBackwards(): void
+    {
+        $profileId = ProfileId::generate();
+        $streamName = sprintf('profile-%s', $profileId->toString());
+
+        $messages = [];
+
+        for ($playhead = 1; $playhead <= 5; $playhead++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'name-' . $playhead))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader($playhead));
+        }
+
+        $this->store->save(...$messages);
+
+        self::assertSame([1, 2], $this->loadPlayheads(limit: 2));
+        self::assertSame([3, 4], $this->loadPlayheads(limit: 2, offset: 2));
+        self::assertSame([1, 2, 3], $this->loadPlayheads(limit: 3, offset: 0));
+        self::assertSame([5, 4, 3, 2, 1], $this->loadPlayheads(backwards: true));
+    }
+
+    public function testLoadWithIndexCriteria(): void
+    {
+        $profileId = ProfileId::generate();
+        $streamName = sprintf('profile-%s', $profileId->toString());
+
+        $messages = [];
+
+        for ($playhead = 1; $playhead <= 5; $playhead++) {
+            $messages[] = Message::create(new ProfileCreated($profileId, 'name-' . $playhead))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader($playhead));
+        }
+
+        $this->store->save(...$messages);
+
+        self::assertSame([4, 5], $this->loadPlayheads(criteria: new Criteria(new FromIndexCriterion(3))));
+        self::assertSame([1, 2], $this->loadPlayheads(criteria: new Criteria(new ToIndexCriterion(3))));
+        self::assertSame([3, 4, 5], $this->loadPlayheads(criteria: new Criteria(new FromPlayheadCriterion(2))));
+        self::assertSame(
+            [3, 4],
+            $this->loadPlayheads(criteria: new Criteria(new FromPlayheadCriterion(2), new ToPlayheadCriterion(5))),
+        );
+    }
+
+    public function testLoadWithEventCriteria(): void
+    {
+        $profileId = ProfileId::generate();
+        $eventId = '0190e47e-77e9-7b90-bf62-08bbf0ab9b4b';
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader(sprintf('profile-%s', $profileId->toString())))
+                ->withHeader(new PlayheadHeader(1))
+                ->withHeader(new EventIdHeader($eventId)),
+            Message::create(new ExternEvent('test message'))
+                ->withHeader(new StreamNameHeader('foo')),
+        );
+
+        $stream = null;
+
+        try {
+            $stream = $this->store->load(new Criteria(new EventsCriterion(['profile.created'])));
+
+            self::assertCount(1, iterator_to_array($stream));
+        } finally {
+            $stream?->close();
+        }
+
+        try {
+            $stream = $this->store->load(new Criteria(new EventIdCriterion($eventId)));
+            $messages = iterator_to_array($stream);
+
+            self::assertCount(1, $messages);
+            self::assertSame($eventId, $messages[0]->header(EventIdHeader::class)->eventId);
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testLoadWithArchivedCriterion(): void
+    {
+        $profileId = ProfileId::generate();
+        $streamName = sprintf('profile-%s', $profileId->toString());
+
+        $this->store->save(
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader(1)),
+            Message::create(new ProfileCreated($profileId, 'test'))
+                ->withHeader(new StreamNameHeader($streamName))
+                ->withHeader(new PlayheadHeader(2)),
+        );
+
+        $this->store->archive(new Criteria(new StreamCriterion($streamName), new ToPlayheadCriterion(2)));
+
+        self::assertSame([2], $this->loadPlayheads(criteria: new Criteria(new ArchivedCriterion(false))));
+        self::assertSame([1], $this->loadPlayheads(criteria: new Criteria(new ArchivedCriterion(true))));
+    }
+
+    public function testUnsupportedCriterion(): void
+    {
+        $this->expectException(UnsupportedCriterion::class);
+
+        $this->store->count(new Criteria(new AggregateIdCriterion('1')));
+    }
+
+    public function testLoadEmptyStore(): void
+    {
+        self::assertSame([], $this->loadPlayheads());
+        self::assertSame(0, $this->store->count());
+    }
+
+    public function testLoadMultipleStreams(): void
+    {
+        $this->store->save(
+            $this->message('profile-a', 1),
+            $this->message('profile-b', 2),
+            $this->message('profile-c', 3),
+        );
+
+        self::assertSame([1, 2], $this->loadPlayheads(new Criteria(new StreamCriterion('profile-a', 'profile-b'))));
+    }
+
+    public function testSaveWithoutStreamName(): void
+    {
+        $message = Message::create(new ProfileCreated(ProfileId::generate(), 'test'))
+            ->withHeader(new PlayheadHeader(1))
+            ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')));
+
+        $this->expectException(MissingDataForStorage::class);
+
+        $this->store->save($message);
+    }
+
+    public function testSaveWithCustomHeaders(): void
+    {
+        $store = new StreamIlluminateStore(
+            $this->connection,
+            DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+            DefaultHeadersSerializer::createFromPaths([__DIR__ . '/Header']),
+            clock: $this->clock,
+        );
+
+        $store->save($this->message('profile-a', 1)->withHeader(new TraceHeader('trace-1')));
+
+        $stream = null;
+
+        try {
+            $stream = $store->load();
+            $loaded = $stream->current();
+
+            self::assertInstanceOf(Message::class, $loaded);
+            self::assertEquals(new TraceHeader('trace-1'), $loaded->header(TraceHeader::class));
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    public function testTransactionalRollsBackOnException(): void
+    {
+        $exception = null;
+
+        try {
+            $this->store->transactional(function (): void {
+                $this->store->save($this->message('profile-a', 1));
+
+                throw new RuntimeException('error');
+            });
+        } catch (RuntimeException $e) {
+            $exception = $e;
+        }
+
+        self::assertNotNull($exception);
+        self::assertSame(0, $this->store->count());
+        self::assertSame(0, $this->connection->transactionLevel());
+    }
+
+    public function testTransactionalNested(): void
+    {
+        $this->store->transactional(function (): void {
+            $this->store->transactional(function (): void {
+                $this->store->save($this->message('profile-a', 1));
+            });
+
+            $this->store->save($this->message('profile-a', 2));
+        });
+
+        self::assertSame([1, 2], $this->loadPlayheads());
+        self::assertSame(0, $this->connection->transactionLevel());
+    }
+
+    public function testTransactionalTwice(): void
+    {
+        $this->store->transactional(function (): void {
+            $this->store->save($this->message('profile-a', 1));
+        });
+
+        $this->store->transactional(function (): void {
+            $this->store->save($this->message('profile-a', 2));
+        });
+
+        self::assertSame([1, 2], $this->loadPlayheads());
+    }
+
+    public function testSaveLockTimeout(): void
+    {
+        $this->skipIfNoLockTimeout();
+
+        $otherConnection = DatabaseManager::createConnection(forceNewConnection: true);
+
+        try {
+            self::assertSame(1, (int)$otherConnection->selectOne('SELECT GET_LOCK(?, 1) AS l', ['133742'])->l);
+
+            $store = new StreamIlluminateStore(
+                $this->connection,
+                DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+                clock: $this->clock,
+                config: ['lock_timeout' => 1],
+            );
+
+            $this->expectException(LockCouldNotBeAcquired::class);
+            $this->expectExceptionMessage('The lock with id [133742] could not be acquired with a timeout of 1');
+
+            $store->save($this->message('profile-a', 1));
+        } finally {
+            $otherConnection->disconnect();
+        }
+    }
+
+    public function testLockIsReleasedAfterException(): void
+    {
+        $this->skipIfNoLockTimeout();
+
+        try {
+            $this->store->transactional(static function (): void {
+                throw new RuntimeException('error');
+            });
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        $otherConnection = DatabaseManager::createConnection(forceNewConnection: true);
+
+        try {
+            $otherStore = new StreamIlluminateStore(
+                $otherConnection,
+                DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+                clock: $this->clock,
+                config: ['lock_timeout' => 1],
+            );
+
+            $otherStore->save($this->message('profile-a', 1));
+
+            self::assertSame(1, $this->store->count());
+        } finally {
+            $otherConnection->disconnect();
+        }
+    }
+
+    public function testLockIsAcquiredAgainAfterTimeout(): void
+    {
+        $this->skipIfNoLockTimeout();
+
+        $otherConnection = DatabaseManager::createConnection(forceNewConnection: true);
+
+        try {
+            self::assertSame(1, (int)$otherConnection->selectOne('SELECT GET_LOCK(?, 1) AS l', ['133742'])->l);
+
+            $store = new StreamIlluminateStore(
+                $this->connection,
+                DefaultEventSerializer::createFromPaths([__DIR__ . '/Events']),
+                clock: $this->clock,
+                config: ['lock_timeout' => 1],
+            );
+
+            $exception = null;
+
+            try {
+                $store->save($this->message('profile-a', 1));
+            } catch (Throwable $e) {
+                $exception = $e;
+            }
+
+            self::assertInstanceOf(LockCouldNotBeAcquired::class, $exception);
+
+            // the lock is still held by the other connection, so the second save must also wait for it
+            $this->expectException(LockCouldNotBeAcquired::class);
+
+            $store->save($this->message('profile-a', 1));
+        } finally {
+            $otherConnection->disconnect();
+        }
+    }
+
+    public function testSubscriptionSupport(): void
+    {
+        self::assertSame($this->connection->getDriverName() === 'pgsql', $this->store->supportSubscription());
+
+        // without support both are a no-op, with support no notification arrives within the timeout
+        $this->store->setupSubscription();
+        $this->store->wait(10);
+
+        self::assertSame(0, $this->store->count());
+    }
+
+    public function testSetupSubscriptionCreatesTheNotifyTrigger(): void
+    {
+        if ($this->connection->getDriverName() !== 'pgsql') {
+            self::markTestSkipped('only postgres supports the subscription notifications');
+        }
+
+        $this->store->setupSubscription();
+        $this->store->setupSubscription();
+
+        $trigger = $this->connection->selectOne(
+            "SELECT tgname FROM pg_trigger WHERE tgname = 'notify_trigger' AND tgrelid = 'event_store'::regclass",
+        );
+
+        self::assertNotNull($trigger);
+    }
+
+    /** @return list<int> */
+    private function loadPlayheads(
+        Criteria|null $criteria = null,
+        int|null $limit = null,
+        int|null $offset = null,
+        bool $backwards = false,
+    ): array {
+        $stream = null;
+
+        try {
+            $stream = $this->store->load($criteria, $limit, $offset, $backwards);
+
+            $playheads = [];
+
+            foreach ($stream as $message) {
+                $playheads[] = $message->header(PlayheadHeader::class)->playhead;
+            }
+
+            return $playheads;
+        } finally {
+            $stream?->close();
+        }
+    }
+
+    private function message(string $streamName, int $playhead): Message
+    {
+        return Message::create(new ProfileCreated(ProfileId::generate(), 'test'))
+            ->withHeader(new StreamNameHeader($streamName))
+            ->withHeader(new PlayheadHeader($playhead))
+            ->withHeader(new RecordedOnHeader(new DateTimeImmutable('2020-01-01 00:00:00')));
+    }
+
+    private function skipIfNoLockTimeout(): void
+    {
+        $driver = $this->connection->getDriverName();
+
+        if ($driver === 'sqlite') {
+            self::markTestSkipped('SQLite does not support locks');
+        }
+
+        if ($driver === 'pgsql') {
+            self::markTestSkipped('PostgreSQL does lock indefinitely');
+        }
+    }
+}

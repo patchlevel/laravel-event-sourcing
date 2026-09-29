@@ -9,6 +9,8 @@ use DateTimeImmutable;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Tools\DsnParser;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
 use Patchlevel\EventSourcing\Clock\FrozenClock;
@@ -89,6 +91,9 @@ use Patchlevel\EventSourcing\Store\ReadOnlyStore;
 use Patchlevel\EventSourcing\Store\Store;
 use Patchlevel\EventSourcing\Store\StreamDoctrineDbalStore;
 use Patchlevel\EventSourcing\Store\StreamReadOnlyStore;
+use Patchlevel\EventSourcing\Subscription\Cleanup\Cleaner;
+use Patchlevel\EventSourcing\Subscription\Cleanup\Dbal\DbalCleanupTaskHandler;
+use Patchlevel\EventSourcing\Subscription\Cleanup\DefaultCleaner;
 use Patchlevel\EventSourcing\Subscription\Engine\CatchUpSubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Engine\DefaultSubscriptionEngine;
 use Patchlevel\EventSourcing\Subscription\Engine\GapResolverStoreMessageLoader;
@@ -122,10 +127,14 @@ use Patchlevel\Hydrator\Metadata\AttributeMetadataFactory;
 use Patchlevel\Hydrator\MetadataHydrator;
 use Patchlevel\LaravelEventSourcing\Console\CacheClearCommand;
 use Patchlevel\LaravelEventSourcing\Console\CacheCommand;
+use Patchlevel\LaravelEventSourcing\Cryptography\IlluminateCipherKeyStore;
 use Patchlevel\LaravelEventSourcing\Middleware\AutoSetupMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\EventSourcingMiddleware;
 use Patchlevel\LaravelEventSourcing\Middleware\SubscriptionRebuildAfterFileChangeMiddleware;
+use Patchlevel\LaravelEventSourcing\Store\StreamIlluminateStore;
+use Patchlevel\LaravelEventSourcing\Subscription\Cleanup\Illuminate\IlluminateCleanupTaskHandler;
 use Patchlevel\LaravelEventSourcing\Subscription\StaticInMemorySubscriptionStoreFactory;
+use Patchlevel\LaravelEventSourcing\Subscription\Store\IlluminateSubscriptionStore;
 
 use function app;
 use function array_filter;
@@ -133,6 +142,7 @@ use function array_key_exists;
 use function config;
 use function config_path;
 use function database_path;
+use function is_array;
 use function is_string;
 use function sprintf;
 use function str_starts_with;
@@ -163,11 +173,6 @@ class EventSourcingServiceProvider extends ServiceProvider
         }
 
         $this->commands([
-            DatabaseCreateCommand::class,
-            DatabaseDropCommand::class,
-            SchemaCreateCommand::class,
-            SchemaUpdateCommand::class,
-            SchemaDropCommand::class,
             ShowCommand::class,
             ShowAggregateCommand::class,
             WatchCommand::class,
@@ -185,12 +190,20 @@ class EventSourcingServiceProvider extends ServiceProvider
             CacheClearCommand::class,
         ]);
 
+        if (config('event-sourcing.connection.type') === 'dbal') {
+            $this->commands([
+                DatabaseCreateCommand::class,
+                DatabaseDropCommand::class,
+                SchemaCreateCommand::class,
+                SchemaUpdateCommand::class,
+                SchemaDropCommand::class,
+            ]);
+        }
+
         if (!config('event-sourcing.cache.enabled')) {
             return;
         }
 
-        // only hooked into `optimize` when the cache is on, a disabled cache would otherwise
-        // report the task as failed there
         $this->optimizes(
             optimize: 'event-sourcing:cache',
             clear: 'event-sourcing:cache:clear',
@@ -302,64 +315,87 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerConnection(): void
     {
-        $connectionCreationCallback = static function () {
-            $url = config('event-sourcing.connection.url');
+        /** @var string $type */
+        $type = config('event-sourcing.connection.type');
+        $provideDedicatedConnection = (bool)config('event-sourcing.connection.provide_dedicated_connection');
 
-            if (is_string($url)) {
+        if ($type === 'dbal') {
+            $connectionCreationCallback = static function () {
+                $url = config('event-sourcing.connection.url');
+
+                if (is_string($url)) {
+                    return DriverManager::getConnection(
+                        (new DsnParser())->parse($url),
+                    );
+                }
+
+                /** @var array<string, array{url: string|null, driver: string, database?: string|null, username?: string|null, password?: string|null, host?: string|null, port?: int|null}> $connections */
+                $connections = config('database.connections');
+
+                /** @var string $connectionKey */
+                $connectionKey = config('event-sourcing.connection.connection');
+
+                if (!array_key_exists($connectionKey, $connections)) {
+                    throw new InvalidArgumentException(sprintf('Connection "%s" not found', $connectionKey));
+                }
+
+                $connectionParams = $connections[$connectionKey];
+
+                if ($connectionParams['url'] ?? false) {
+                    return DriverManager::getConnection(
+                        (new DsnParser())->parse($connectionParams['url']),
+                    );
+                }
+
+                /** @var 'pdo_mysql'|'pdo_pgsql'|'pdo_sqlite' $driver */
+                $driver = match ($connectionParams['driver']) {
+                    'mysql', 'mariadb' => 'pdo_mysql',
+                    'pgsql' => 'pdo_pgsql',
+                    'sqlite' => 'pdo_sqlite',
+                    default => $connectionParams['driver'],
+                };
+
                 return DriverManager::getConnection(
-                    (new DsnParser())->parse($url),
+                    array_filter(
+                        [
+                            'driver' => $driver,
+                            'dbname' => $connectionParams['database'] ?? null,
+                            'path' => $connectionParams['database'] ?? null,
+                            'user' => $connectionParams['username'] ?? null,
+                            'password' => $connectionParams['password'] ?? null,
+                            'host' => $connectionParams['host'] ?? null,
+                            'port' => $connectionParams['port'] ?? null,
+                        ],
+                        static fn (mixed $value) => $value !== null,
+                    ),
                 );
-            }
-
-            /** @var array<string, array{url: string|null, driver: string, database?: string|null, username?: string|null, password?: string|null, host?: string|null, port?: int|null}> $connections */
-            $connections = config('database.connections');
-
-            /** @var string $connectionKey */
-            $connectionKey = config('event-sourcing.connection.connection');
-
-            if (!array_key_exists($connectionKey, $connections)) {
-                throw new InvalidArgumentException(sprintf('Connection "%s" not found', $connectionKey));
-            }
-
-            $connectionParams = $connections[$connectionKey];
-
-            if ($connectionParams['url'] ?? false) {
-                return DriverManager::getConnection(
-                    (new DsnParser())->parse($connectionParams['url']),
-                );
-            }
-
-            /** @var 'pdo_mysql'|'pdo_pgsql'|'pdo_sqlite' $driver */
-            $driver = match ($connectionParams['driver']) {
-                'mysql', 'mariadb' => 'pdo_mysql',
-                'pgsql' => 'pdo_pgsql',
-                'sqlite' => 'pdo_sqlite',
-                default => $connectionParams['driver'],
             };
 
-            return DriverManager::getConnection(
-                array_filter(
-                    [
-                        'driver' => $driver,
-                        'dbname' => $connectionParams['database'] ?? null,
-                        'path' => $connectionParams['database'] ?? null,
-                        'user' => $connectionParams['username'] ?? null,
-                        'password' => $connectionParams['password'] ?? null,
-                        'host' => $connectionParams['host'] ?? null,
-                        'port' => $connectionParams['port'] ?? null,
-                    ],
-                    static fn (mixed $value) => $value !== null,
-                ),
-            );
-        };
+            $publicConnectionCreationCallback = $connectionCreationCallback;
+        } elseif ($type === 'illuminate') {
+            $connectionCreationCallback = static fn () => DB::connection();
 
-        $this->app->singleton('event_sourcing.dbal_connection', $connectionCreationCallback);
+            if ($provideDedicatedConnection) {
+                $base = config('database.connections.' . config('database.default'));
+                Config::set('database.connections.event_sourcing_public', $base);
+                DB::purge('event_sourcing_public');
+            }
 
-        if (!config('event-sourcing.connection.provide_dedicated_connection')) {
+            $publicConnectionCreationCallback = static fn () => DB::connection('event_sourcing_public');
+        } else {
+            throw new InvalidArgumentException(sprintf('Unknown connection type "%s"', $type));
+        }
+
+        // the generic ids are always available, the type specific one only for the active type
+        $this->app->singleton('event_sourcing.connection', $connectionCreationCallback);
+        $this->app->alias('event_sourcing.connection', sprintf('event_sourcing.%s_connection', $type));
+
+        if (!$provideDedicatedConnection) {
             return;
         }
 
-        $this->app->singleton('event_sourcing.dbal_public_connection', $connectionCreationCallback);
+        $this->app->singleton('event_sourcing.public_connection', $publicConnectionCreationCallback);
+        $this->app->alias('event_sourcing.public_connection', sprintf('event_sourcing.%s_public_connection', $type));
     }
 
     private function registerStore(): void
@@ -396,7 +432,7 @@ class EventSourcingServiceProvider extends ServiceProvider
 
             if ($type === 'dbal_aggregate') {
                 $store = new DoctrineDbalStore(
-                    app('event_sourcing.dbal_connection'),
+                    app('event_sourcing.connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
                     $options,
@@ -411,7 +447,23 @@ class EventSourcingServiceProvider extends ServiceProvider
 
             if ($type === 'dbal_stream') {
                 $store = new StreamDoctrineDbalStore(
-                    app('event_sourcing.dbal_connection'),
+                    app('event_sourcing.connection'),
+                    app(EventSerializer::class),
+                    app(HeadersSerializer::class),
+                    app('event_sourcing.clock'),
+                    $options,
+                );
+
+                if (config('event-sourcing.store.read_only')) {
+                    $store = new StreamReadOnlyStore($store, app('log'));
+                }
+
+                return $store;
+            }
+
+            if ($type === 'illuminate_stream') {
+                $store = new StreamIlluminateStore(
+                    app('event_sourcing.connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
                     app('event_sourcing.clock'),
@@ -535,6 +587,10 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerSchema(): void
     {
+        if (config('event-sourcing.connection.type') !== 'dbal') {
+            return;
+        }
+
         $this->app->singleton(DoctrineSchemaConfigurator::class, function () {
             return new ChainDoctrineSchemaConfigurator(
                 $this->app->tagged('event_sourcing.doctrine_schema_configurator'),
@@ -543,21 +599,21 @@ class EventSourcingServiceProvider extends ServiceProvider
 
         $this->app->singleton(SchemaDirector::class, static function () {
             return new DoctrineSchemaDirector(
-                app('event_sourcing.dbal_connection'),
+                app('event_sourcing.connection'),
                 app(DoctrineSchemaConfigurator::class),
             );
         });
 
         $this->app->singleton(DatabaseCreateCommand::class, static function () {
             return new DatabaseCreateCommand(
-                app('event_sourcing.dbal_connection'),
+                app('event_sourcing.connection'),
                 new DoctrineHelper(),
             );
         });
 
         $this->app->singleton(DatabaseDropCommand::class, static function () {
             return new DatabaseDropCommand(
-                app('event_sourcing.dbal_connection'),
+                app('event_sourcing.connection'),
                 new DoctrineHelper(),
             );
         });
@@ -726,19 +782,19 @@ class EventSourcingServiceProvider extends ServiceProvider
             throw new InvalidArgumentException('Cannot use "retry_strategies" and "retry_strategy" at the same time. Use only "retry_strategies".');
         }
 
+        $strategies = [];
+
         if (config('event-sourcing.subscription.retry_strategy')) {
             $strategies['default'] = new ClockBasedRetryStrategy(
                 app('event_sourcing.clock'),
-                config('event-sourcing.subscription.retry_strategy.base_delay'),
-                config('event-sourcing.subscription.retry_strategy.delay_factor'),
-                config('event-sourcing.subscription.retry_strategy.max_attempts'),
+                config('event-sourcing.subscription.retry_strategy.base_delay') ?? ClockBasedRetryStrategy::DEFAULT_BASE_DELAY,
+                config('event-sourcing.subscription.retry_strategy.delay_factor') ?? ClockBasedRetryStrategy::DEFAULT_DELAY_FACTOR,
+                config('event-sourcing.subscription.retry_strategy.max_attempts') ?? ClockBasedRetryStrategy::DEFAULT_MAX_ATTEMPTS,
             );
             $strategies['no_retry'] = new NoRetryStrategy();
         }
 
-        $strategies = [];
-
-        foreach (config('event-sourcing.subscription.retry_strategies') as $name => $config) {
+        foreach (config('event-sourcing.subscription.retry_strategies') ?? [] as $name => $config) {
             if ($config['type'] === 'custom') {
                 $strategies[$name] = app($config['service']);
 
@@ -779,19 +835,27 @@ class EventSourcingServiceProvider extends ServiceProvider
             );
         });
 
-        if (config('event-sourcing.subscription.store.type') === 'custom') {
+        $subscriptionStoreType = config('event-sourcing.subscription.store.type');
+
+        if ($subscriptionStoreType === 'custom') {
             if (config('event-sourcing.subscription.store.service') === null) {
                 throw new InvalidArgumentException('Custom subscription store type requires a service');
             }
 
             $storeCallback = static fn () => app(config('event-sourcing.subscription.store.service'));
-        } elseif (config('event-sourcing.subscription.store.type') === 'in_memory') {
+        } elseif ($subscriptionStoreType === 'in_memory') {
             $storeCallback = static fn () => new InMemorySubscriptionStore([], app('event_sourcing.clock'));
-        } elseif (config('event-sourcing.subscription.store.type') === 'static_in_memory') {
+        } elseif ($subscriptionStoreType === 'static_in_memory') {
             $storeCallback = static fn () => StaticInMemorySubscriptionStoreFactory::create();
-        } elseif (config('event-sourcing.subscription.store.type') === 'dbal') {
+        } elseif ($subscriptionStoreType === 'dbal') {
             $storeCallback = static fn () => new DoctrineSubscriptionStore(
-                app('event_sourcing.dbal_connection'),
+                app('event_sourcing.connection'),
+                app('event_sourcing.clock'),
+                config('event-sourcing.subscription.store.options.table_name'),
+            );
+        } elseif ($subscriptionStoreType === 'illuminate') {
+            $storeCallback = static fn () => new IlluminateSubscriptionStore(
+                app('event_sourcing.connection'),
                 app('event_sourcing.clock'),
                 config('event-sourcing.subscription.store.options.table_name'),
             );
@@ -800,7 +864,12 @@ class EventSourcingServiceProvider extends ServiceProvider
         }
 
         $this->app->singleton(SubscriptionStore::class, $storeCallback);
-        $this->app->tag(SubscriptionStore::class, ['event_sourcing.doctrine_schema_configurator']);
+
+        if ($subscriptionStoreType === 'dbal') {
+            $this->app->tag(SubscriptionStore::class, ['event_sourcing.doctrine_schema_configurator']);
+        }
+
+        $this->registerCleaner();
 
         $this->app->tag(
             [
@@ -832,16 +901,17 @@ class EventSourcingServiceProvider extends ServiceProvider
                 app(SubscriberAccessorRepository::class),
                 app(RetryStrategyRepository::class),
                 app('log'),
+                app(Cleaner::class),
             );
         });
 
-        if (config('event-sourcing.subscription.throw_on_error')) {
+        if ($this->optionEnabled('event-sourcing.subscription.throw_on_error')) {
             $this->app->extend(SubscriptionEngine::class, static function (SubscriptionEngine $engine) {
                 return new ThrowOnErrorSubscriptionEngine($engine);
             });
         }
 
-        if (config('event-sourcing.subscription.catch_up')) {
+        if ($this->optionEnabled('event-sourcing.subscription.catch_up')) {
             $this->app->extend(SubscriptionEngine::class, static function (SubscriptionEngine $engine) {
                 return new CatchUpSubscriptionEngine($engine, config('event-sourcing.subscription.catch_up.limit'));
             });
@@ -877,7 +947,11 @@ class EventSourcingServiceProvider extends ServiceProvider
 
         $this->app->singleton(EventSourcingMiddleware::class, static function () {
             $autoSetup = config('event-sourcing.subscription.auto_setup.enabled');
-            $rebuildAfterFileChange = config('event-sourcing.subscription.rebuild_after_file_change.enabled');
+
+            // a deployment changes the modification time of every file, which would rebuild
+            // all projections within a web request. so this is never done in production.
+            $rebuildAfterFileChange = config('event-sourcing.subscription.rebuild_after_file_change.enabled')
+                && !app()->isProduction();
 
             return new EventSourcingMiddleware(
                 $autoSetup ? app(AutoSetupMiddleware::class) : null,
@@ -941,6 +1015,51 @@ class EventSourcingServiceProvider extends ServiceProvider
         );
     }
 
+    /**
+     * Reads an "enabled" flag from an option that is configured as an array.
+     * Older published configs may still hold a plain bool, so both shapes are accepted.
+     */
+    private function optionEnabled(string $key): bool
+    {
+        $value = config($key);
+
+        if (is_array($value)) {
+            return (bool)($value['enabled'] ?? false);
+        }
+
+        return (bool)$value;
+    }
+
+    private function registerCleaner(): void
+    {
+        if (config('event-sourcing.connection.type') === 'dbal') {
+            $this->app->singleton(
+                DbalCleanupTaskHandler::class,
+                static fn () => new DbalCleanupTaskHandler(app('event_sourcing.connection')),
+            );
+
+            $this->app->tag(DbalCleanupTaskHandler::class, ['event_sourcing.cleanup_task_handler']);
+        } else {
+            $this->app->singleton(
+                IlluminateCleanupTaskHandler::class,
+                static fn () => new IlluminateCleanupTaskHandler(app('db')),
+            );
+
+            $this->app->tag(IlluminateCleanupTaskHandler::class, ['event_sourcing.cleanup_task_handler']);
+        }
+
+        /** @var class-string $class */
+        foreach (config('event-sourcing.subscription.cleanup_task_handlers') ?? [] as $class) {
+            $this->app->tag($class, 'event_sourcing.cleanup_task_handler');
+        }
+
+        $this->app->singleton(Cleaner::class, function () {
+            return new DefaultCleaner(
+                $this->app->tagged('event_sourcing.cleanup_task_handler'),
+            );
+        });
+    }
+
     private function registerCryptography(): void
     {
         if (!config('event-sourcing.cryptography.enabled')) {
@@ -952,15 +1071,30 @@ class EventSourcingServiceProvider extends ServiceProvider
             static fn () => new OpensslCipherKeyFactory(config('event-sourcing.cryptography.algorithm')),
         );
 
-        $this->app->singleton(
-            CipherKeyStore::class,
-            static fn () => new DoctrineCipherKeyStore(
-                app('event_sourcing.dbal_connection'),
-                'eventstore_cipher_keys',
-            ),
-        );
+        /** @var string $tableName */
+        $tableName = config('event-sourcing.cryptography.options.table_name') ?? 'crypto_keys';
 
-        $this->app->tag(CipherKeyStore::class, ['event_sourcing.doctrine_schema_configurator']);
+        $cryptographyStoreType = config('event-sourcing.cryptography.store');
+
+        if ($cryptographyStoreType === 'dbal') {
+            $storeCallback = static fn () => new DoctrineCipherKeyStore(
+                app('event_sourcing.connection'),
+                $tableName,
+            );
+        } elseif ($cryptographyStoreType === 'illuminate') {
+            $storeCallback = static fn () => new IlluminateCipherKeyStore(
+                app('event_sourcing.connection'),
+                $tableName,
+            );
+        } else {
+            throw new InvalidArgumentException('Cryptography store type is unknown.');
+        }
+
+        $this->app->singleton(CipherKeyStore::class, $storeCallback);
+
+        if ($cryptographyStoreType === 'dbal') {
+            $this->app->tag(CipherKeyStore::class, ['event_sourcing.doctrine_schema_configurator']);
+        }
 
         $this->app->singleton(Cipher::class, static fn () => new OpensslCipher());
 
@@ -978,23 +1112,23 @@ class EventSourcingServiceProvider extends ServiceProvider
 
     private function registerStoreMigration(): void
     {
-        if (!config('event-sourcing.migrate_to_new_store.enabled')) {
+        if (!config('event-sourcing.store.migrate_to_new_store.enabled')) {
             return;
         }
 
         $id = 'event_sourcing.store.new_store';
 
-        foreach (config('event-sourcing.migrate_to_new_store.translators') as $class) {
+        foreach (config('event-sourcing.store.migrate_to_new_store.translators') as $class) {
             $this->app->tag($class, 'event_sourcing.translator');
         }
 
-        $storeType = config('event-sourcing.migrate_to_new_store.type');
+        $storeType = config('event-sourcing.store.migrate_to_new_store.type');
         if ($storeType === 'custom') {
-            if (config('event-sourcing.migrate_to_new_store.service') === null) {
+            if (config('event-sourcing.store.migrate_to_new_store.service') === null) {
                 throw new InvalidArgumentException('Custom store type requires a service');
             }
 
-            $this->app->singleton($id, static fn () => app(config('event-sourcing.migrate_to_new_store.service')));
+            $this->app->singleton($id, static fn () => app(config('event-sourcing.store.migrate_to_new_store.service')));
         } elseif ($storeType === 'in_memory') {
             $this->app->singleton(
                 $id,
@@ -1008,21 +1142,32 @@ class EventSourcingServiceProvider extends ServiceProvider
             $this->app->singleton(
                 $id,
                 static fn () => new DoctrineDbalStore(
-                    app('event_sourcing.dbal_connection'),
+                    app('event_sourcing.connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
-                    config('event-sourcing.migrate_to_new_store.options'),
+                    config('event-sourcing.store.migrate_to_new_store.options'),
                 ),
             );
         } elseif ($storeType === 'dbal_stream') {
             $this->app->singleton(
                 $id,
                 static fn () => new StreamDoctrineDbalStore(
-                    app('event_sourcing.dbal_connection'),
+                    app('event_sourcing.connection'),
                     app(EventSerializer::class),
                     app(HeadersSerializer::class),
                     app('event_sourcing.clock'),
-                    config('event-sourcing.migrate_to_new_store.options'),
+                    config('event-sourcing.store.migrate_to_new_store.options'),
+                ),
+            );
+        } elseif ($storeType === 'illuminate_stream') {
+            $this->app->singleton(
+                $id,
+                static fn () => new StreamIlluminateStore(
+                    app('event_sourcing.connection'),
+                    app(EventSerializer::class),
+                    app(HeadersSerializer::class),
+                    app('event_sourcing.clock'),
+                    config('event-sourcing.store.migrate_to_new_store.options'),
                 ),
             );
         } else {
