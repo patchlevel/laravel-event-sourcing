@@ -616,7 +616,7 @@ You can find out more about snapshots [here](/docs/event-sourcing/latest/snapsho
 
 ## Cryptography
 
-You can use the library to encrypt and decrypt personal data.
+You can use the library to encrypt and decrypt sensitive data.
 For this you need to enable the crypto shredding.
 
 ```php
@@ -658,6 +658,120 @@ return [
 ```
 :::note
 You can find out more about sensitive data [here](/docs/event-sourcing/latest/personal-data).
+:::
+
+## Hydrator
+
+You can enable the extension based hydrator, which replaces the legacy metadata hydrator.
+
+```php
+return [
+    'hydrator' => ['enabled' => true],
+];
+```
+### Default Lazy
+
+You can enable lazy hydration by default. This means that values are only hydrated when they are accessed.
+
+```php
+return [
+    'hydrator' => [
+        'enabled' => true,
+        'default_lazy' => true,
+    ],
+];
+```
+### Cryptography
+
+The hydrator brings its own cryptography extension to encrypt and decrypt sensitive data.
+You can enable it and optionally choose the algorithm.
+
+```php
+return [
+    'hydrator' => [
+        'enabled' => true,
+        'cryptography' => [
+            'enabled' => true,
+            'algorithm' => 'aes-128-gcm',
+        ],
+    ],
+];
+```
+The cipher keys are stored in the `cryptography_keys` table.
+The published migration contains this table commented out, uncomment it before you run the migration.
+You can change the store implementation and the table name:
+
+```php
+return [
+    'hydrator' => [
+        'enabled' => true,
+        'cryptography' => [
+            'enabled' => true,
+            'store' => 'illuminate', // or 'dbal'
+            'options' => ['table_name' => 'cryptography_keys'],
+        ],
+    ],
+];
+```
+:::tip
+If you switch from the [legacy cryptography](#cryptography), keep it enabled as well.
+Data it encrypted stays readable, new data is encrypted by the extension.
+:::
+
+### Lifecycle
+
+You can enable the lifecycle extension to run lifecycle hooks during hydration.
+
+```php
+return [
+    'hydrator' => [
+        'enabled' => true,
+        'lifecycle' => ['enabled' => true],
+    ],
+];
+```
+### Custom Extensions
+
+You can add your own extensions. They have to implement `Patchlevel\Hydrator\Extension`.
+
+```php
+use App\Hydrator\YourExtension;
+
+return [
+    'hydrator' => [
+        'enabled' => true,
+        'extensions' => [YourExtension::class],
+    ],
+];
+```
+Alternatively you can tag them in a service provider:
+
+```php
+$this->app->tag(YourExtension::class, ['event_sourcing.hydrator.extension']);
+```
+### Custom Guessers
+
+A guesser picks a normalizer for a property without a normalizer attribute.
+The legacy metadata hydrator uses your own guessers before the built-in one.
+They have to implement `Patchlevel\Hydrator\Guesser\Guesser`.
+
+```php
+use App\Hydrator\YourGuesser;
+
+return [
+    'hydrator' => [
+        'guessers' => [YourGuesser::class],
+    ],
+];
+```
+Alternatively you can tag them in a service provider:
+
+```php
+$this->app->tag(YourGuesser::class, ['event_sourcing.hydrator.guesser']);
+```
+:::note
+The extension based hydrator does not use these guessers.
+Add them with an extension instead: `$builder->addGuesser(new YourGuesser())`.
 :::
 
 ## Clock
