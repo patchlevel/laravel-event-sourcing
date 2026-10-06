@@ -20,6 +20,8 @@ use Patchlevel\LaravelEventSourcing\Tests\Fixtures\Profile;
 use Patchlevel\LaravelEventSourcing\Tests\Fixtures\ProfileCreated;
 use Psr\SimpleCache\CacheInterface;
 
+use function hash;
+
 final class CacheTest extends TestCase
 {
     /** @var array<string, mixed>|null */
@@ -103,7 +105,7 @@ final class CacheTest extends TestCase
 
         self::assertNotNull($this->cache()->get('aggregate_root_registry'));
         self::assertNotNull($this->cache()->get('event_registry'));
-        self::assertNotNull($this->cache()->get(ProfileCreated::class));
+        self::assertNotNull($this->cache()->get('event_metadata_' . hash('xxh128', ProfileCreated::class)));
     }
 
     public function testCacheCommandFailsWhenDisabled(): void
